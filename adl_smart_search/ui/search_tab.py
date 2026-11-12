@@ -916,11 +916,13 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
 
             if ctx.dev_mode:
                 groups_info = sel_info.get("groups") or {}
-                parts = [
+                selection_parts = [
                     f"{name}: {len(info.get('picked') or [])}/{info.get('total')}"
                     for name, info in groups_info.items()
                 ]
-                parts.append(f"кандидатов: {len(sel_info.get('candidates') or [])}")
+                selection_parts.append(
+                    f"кандидатов: {len(sel_info.get('candidates') or [])}"
+                )
                 st.caption(
                     "Отбор: gap ≤ {0:.3f}, полоса {1:.3f}, порог схожести {2:.2f}/{3:.2f} "
                     "(другой язык {4:.2f}, пометка ниже {5:.2f})".format(
@@ -931,7 +933,7 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
                         cross_floor,
                         float(ctx.sim_low_confidence),
                     )
-                    + ((" | " + "; ".join(parts)) if parts else "")
+                    + ((" | " + "; ".join(selection_parts)) if selection_parts else "")
                 )
                 used_q = (expanded_query or query or "").strip()
                 if used_q and used_q != (query or "").strip():
