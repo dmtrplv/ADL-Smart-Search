@@ -1,9 +1,9 @@
 {
   "schema": 1,
-  "version": "0.9.0",
+  "version": "0.9.1",
   "channel": "stable",
-  "published_at": "2026-11-12T11:14:58+00:00",
-  "notes": "# ADL Smart Search 0.9.0\n\nПервый публичный релиз для тестирования.\n\n- Поиск по архетипам и полям openEHR.\n- Чат с ИИ по выбранному контексту.\n- Автоматическая проверка и установка обновлений из этого репозитория.\n- Windows x64, onedir-сборка.\n\n`data/`, `config/` и ключи LLM в архив не входят — они подключаются отдельно.",
+  "published_at": "2026-11-12T12:25:07+00:00",
+  "notes": "# ADL Smart Search 0.9.1\n\nХот-фикс выбора провайдера ИИ.\n\n- Переключатель «ГигаЧат / МЭШ.ИИ.Хаб» теперь реально меняет провайдера в exe.\n- При запуске по умолчанию активен МЭШ.ИИ.Хаб.\n- В dev-панели редактируются настройки обоих провайдеров.\n- `api_kind` больше не хранится в конфиге: выбор действует только в текущей сессии.\n- Настройки GigaChat и МЭШ.ИИ.Хаб остаются в `llm.json`.",
   "managed_roots": [
     "ADL-Smart-Search.exe",
     "ADL-Smart-Search-Updater.exe",
@@ -15,13 +15,13 @@
   "files": [
     {
       "path": "ADL-Smart-Search-Updater.exe",
-      "size": 11128088,
-      "sha256": "9a825da0075f69b8113652c72f63e18039adf6919933eeb0a91122b5c7fe736d"
+      "size": 11128717,
+      "sha256": "ee8b0d08cc1e98b33756fed33dfb3e5efceb565e355175b1d9b71e7f63135c27"
     },
     {
       "path": "ADL-Smart-Search.exe",
-      "size": 73426322,
-      "sha256": "a55d8db7f7acfb961f4b2e004258db7f6a809ad6334a4c1c2b92937b1155a591"
+      "size": 73426325,
+      "sha256": "31aeca5bf0f96390a9d4d028a88cfff8664b5cdb22ed6ac30e54402b50444cfc"
     },
     {
       "path": "_internal/81d243bd2c585b0f4821__mypyc.cp312-win_amd64.pyd",
@@ -65,8 +65,8 @@
     },
     {
       "path": "_internal/README.md",
-      "size": 53391,
-      "sha256": "6439cf101ec9594717e17998b16f83b36589cc459b2abff0e1943c2e408bebe2"
+      "size": 53843,
+      "sha256": "a8203da7848b52d5c038084bb026f16a532fa35697abdad40f175ee68fdf49c9"
     },
     {
       "path": "_internal/VCOMP140.DLL",
@@ -161,7 +161,7 @@
     {
       "path": "_internal/adl_smart_search/__init__.py",
       "size": 230,
-      "sha256": "617fc7f949fd95b76e3941401aaaa74127c8c95af9e21a9676eb414ec6b27941"
+      "sha256": "c6ce7b58ee9a1e08a16d786e44412fb02e897fcafbd8286088f71eb801f532b8"
     },
     {
       "path": "_internal/adl_smart_search/adl_parser.py",
@@ -280,23 +280,23 @@
     },
     {
       "path": "_internal/adl_smart_search/ui/llm_provider.py",
-      "size": 23395,
-      "sha256": "592dfb1969cba48953e8c03399b53caed3a5f6ee96f394a8c68dc89c43797777"
+      "size": 24219,
+      "sha256": "95d98760ff5a03e6c3764268f9d1d15e86abfeaa4cebec09c35e7ca367e50d4f"
     },
     {
       "path": "_internal/adl_smart_search/ui/search_tab.py",
-      "size": 67662,
-      "sha256": "e87b588d0d4ec8b068326dcdcb01a8f06ecc1c0b3a2513f3622703da54e243a2"
+      "size": 67853,
+      "sha256": "5d12f9916a83dbca558289b03e68aa8c785b5314263e3d7ceb9a2b0e7662d6a9"
     },
     {
       "path": "_internal/adl_smart_search/ui/settings.py",
-      "size": 29920,
-      "sha256": "cac0ba7a1a347694244ac70e4cbab447f12804d6a76b2df72e395ec0aaf7e712"
+      "size": 29898,
+      "sha256": "ea3d7f94a1f3664094e605a632752b2c90c10bab3f65318b8d476de3ea538e05"
     },
     {
       "path": "_internal/adl_smart_search/ui/sidebar.py",
-      "size": 93024,
-      "sha256": "6cb234904df3209fe896deda60feec2d6312090a2c1e703b0446020c0d4fb1d0"
+      "size": 91700,
+      "sha256": "d0ab8ebc6c930e4b9b9bf54239a99ff76a49beed2596a7f9131107e44b5ed7ad"
     },
     {
       "path": "_internal/adl_smart_search/ui/tab_archetypes.py",
@@ -370,8 +370,8 @@
     },
     {
       "path": "_internal/app.py",
-      "size": 23828,
-      "sha256": "3f8af1d48b9f7160ebbeb19a33042ed6c4f1e6e02e4861cd44bc0df330632e57"
+      "size": 24144,
+      "sha256": "62c289d9cbf15ee9bcbabb66ce2bc795dbad33d9da199e1fafb4a31290d1ca42"
     },
     {
       "path": "_internal/attrs-26.1.0.dist-info/INSTALLER",
@@ -401,7 +401,7 @@
     {
       "path": "_internal/base_library.zip",
       "size": 1333717,
-      "sha256": "771a051eb9a8f87da07c16f25a9938ac417e014a1a87b3d2d9ada83af2451c7d"
+      "sha256": "d3fabf05af910ad5dafafc2e7d3db8db7fdc90e6bd989d36b26cac01569535a4"
     },
     {
       "path": "_internal/certifi/cacert.pem",
@@ -33061,15 +33061,21 @@
     {
       "path": "version.json",
       "size": 73,
-      "sha256": "81c9ddcb7d97eaed990a5f99c1a7e6f79d9187ecadf1096d358e1d783faa92ed"
+      "sha256": "423a445d36a1ae7349c5a4407d3cb54f1f97151fd55ab7dc97941c4cbee54f62"
     }
   ],
   "assets": {
     "full": {
-      "url": "https://github.com/dmtrplv/ADL-Smart-Search/releases/download/v0.9.0/ADL-Smart-Search-0.9.0-full.zip",
-      "size": 733605580,
-      "sha256": "4fafa80eeb34f4c5c1e9218866e502765d019e66bbef4220079a51c68b2508cb"
+      "url": "https://github.com/dmtrplv/ADL-Smart-Search/releases/download/v0.9.1/ADL-Smart-Search-0.9.1-full.zip",
+      "size": 733606903,
+      "sha256": "009a13894c3f35028a085feece8d062ee7ab3a130b59be86277c407446b1392d"
     },
-    "deltas": {}
+    "deltas": {
+      "0.9.0": {
+        "url": "https://github.com/dmtrplv/ADL-Smart-Search/releases/download/v0.9.1/delta-0.9.0-to-0.9.1.zip",
+        "size": 84362479,
+        "sha256": "cfeb28e703a09db8f11dbc2091b6dfcaf50b4032d550ed031a3fe190b386b190"
+      }
+    }
   }
 }
