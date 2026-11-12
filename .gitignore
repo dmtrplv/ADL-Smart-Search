@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenvs
+.venv/
+venv/
+ENV/
+
+# Build / packaging
+build/
+dist/
+*.spec
+
+# Test / coverage artifacts
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+
+# Release assets: manifests are tracked, large zips are uploaded to GitHub
+update/assets/
+update/*.tmp
+
+# Runtime data (should not be versioned)
+data/
+data_ckm/
+config/
+.adl-local/
+models/
+logs/
+
+# Streamlit
+.streamlit/
+
+# Secrets / local env
+.env
+.env.*
+!.env.example
+corp_catalog.json
+
+# Public CA certificates: ship only the GigaChat root CA
+sertificates/*
+!sertificates/Russian_Trusted_Root_CA.cer
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+

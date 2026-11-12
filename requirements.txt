@@ -1,0 +1,16 @@
+# Прямые зависимости проекта (без пинов — для разработки).
+# Для сборки exe используется requirements.lock.txt (pin-файл).
+#
+# Регенерация lock-файла:
+#   .venv\Scripts\activate
+#   pip install pip-tools          # один раз
+#   pip-compile requirements.txt   # пересчитать requirements.lock.txt
+#
+# Если добавили/обновили пакет — пересоберите lock-файл перед коммитом.
+
+numpy
+sentence-transformers
+ollama
+gigachat==0.2.3
+requests
+streamlit

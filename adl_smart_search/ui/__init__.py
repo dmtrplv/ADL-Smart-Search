@@ -1,0 +1,1 @@
+"""Streamlit UI package: sidebar, tabs and shared helpers (moved from app.py)."""
