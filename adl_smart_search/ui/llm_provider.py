@@ -21,6 +21,7 @@ from adl_smart_search.ui.settings import LLM_UI_DEFAULTS
 logger = logging.getLogger(__name__)
 
 API_KIND_OPTIONS = ["gigachat", "corp_async", "openai_compatible"]
+CHAT_PROVIDER_OPTIONS = ("gigachat", "corp_async")
 CORP_API_KIND = "corp_async"
 DEFAULT_API_KIND = "corp_async"
 # Модели GigaChat API (PERS/B2B). Порядок — от лёгкой к самой мощной.
@@ -32,6 +33,20 @@ GIGACHAT_MODEL_OPTIONS = [
     "GigaChat-3-Pro",
     "GigaChat-3-Ultra",
 ]
+
+
+def resolve_chat_provider(value: str | None) -> str:
+    """Допустимый провайдер чата; всё остальное сводится к МЭШ.ИИ.Хаб."""
+    return value if value in CHAT_PROVIDER_OPTIONS else DEFAULT_API_KIND
+
+
+def selected_chat_provider() -> str:
+    """Провайдер, выбранный радиокнопкой в чате.
+
+    Выбор живёт только в session_state. При новом запуске приложения
+    ``init_llm_session_defaults`` ставит ``corp_async``.
+    """
+    return resolve_chat_provider(st.session_state.get("chat_provider_choice"))
 
 
 def load_ui_catalog(cfg) -> list[dict]:
@@ -358,8 +373,9 @@ def init_llm_session_defaults(cfg, persisted: dict | None = None) -> None:
         "ollama_repeat_penalty": float(getattr(cfg, "ollama_repeat_penalty", cfg.ollama_repeat_penalty)),
         "ollama_use_num_predict": bool(getattr(cfg, "ollama_use_num_predict", False)),
         "ollama_num_predict": int(getattr(cfg, "ollama_num_predict", cfg.ollama_num_predict)),
-        # API
-        "api_kind": (getattr(cfg, "api_kind", "") or DEFAULT_API_KIND),
+        # API. Провайдер выбирается радиокнопкой в чате, по умолчанию — corp_async.
+        "api_kind": DEFAULT_API_KIND,
+        "chat_provider_choice": DEFAULT_API_KIND,
         "api_base_url": (cfg.api_base_url or cfg.api_base_url_default),
         "api_key": (cfg.api_key or ""),
         "api_model": (cfg.api_model or ""),
@@ -450,5 +466,5 @@ def init_llm_session_defaults(cfg, persisted: dict | None = None) -> None:
         st.session_state["llm_mode"] = "api"
     if st.session_state.get("api_kind") not in API_KIND_OPTIONS:
         st.session_state["api_kind"] = DEFAULT_API_KIND
-    if st.session_state.get("api_kind") == "gigachat":
-        st.session_state["corp_context_window"] = int(st.session_state.get("gigachat_context_window") or 32000)
+    if st.session_state.get("chat_provider_choice") not in CHAT_PROVIDER_OPTIONS:
+        st.session_state["chat_provider_choice"] = DEFAULT_API_KIND

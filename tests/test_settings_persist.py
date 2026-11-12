@@ -156,6 +156,15 @@ def test_apply_llm_settings_overrides_cfg_and_coerces():
     assert cfg.api_model == ""
 
 
+def test_apply_llm_settings_ignores_legacy_api_kind():
+    cfg = AppConfig(adl_dir=".")
+
+    apply_llm_settings(cfg, {"api_kind": "gigachat", "api_model": "m"})
+
+    assert cfg.api_kind == "corp_async"
+    assert cfg.api_model == "m"
+
+
 def test_apply_llm_settings_bumps_old_disabled_max_tokens():
     cfg = AppConfig(adl_dir=".")
     apply_llm_settings(cfg, {"corp_use_max_tokens": False, "corp_max_tokens": 800})
@@ -229,7 +238,8 @@ def test_saved_llm_settings_do_not_override_env_secrets(tmp_path, monkeypatch):
     assert "api_key" not in LLM_SETTINGS_TYPES
     assert "gigachat_credentials" not in LLM_SETTINGS_TYPES
     assert "openai_api_key" not in LLM_SETTINGS_TYPES
-    assert {"api_kind", "api_model", "gigachat_model"}.issubset(LLM_SETTINGS_TYPES)
+    assert "api_kind" not in LLM_SETTINGS_TYPES
+    assert {"api_model", "gigachat_model"}.issubset(LLM_SETTINGS_TYPES)
     assert {"openai_base_url", "openai_model"}.issubset(LLM_SETTINGS_TYPES)
 
 

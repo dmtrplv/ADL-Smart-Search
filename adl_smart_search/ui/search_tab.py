@@ -52,6 +52,10 @@ from adl_smart_search.ui.dialog import (
     send_followup,
     store_last_usage,
 )
+from adl_smart_search.ui.llm_provider import (
+    CHAT_PROVIDER_OPTIONS,
+    selected_chat_provider,
+)
 from adl_smart_search.ui.settings import select_indices_by_relevance
 from adl_smart_search.ui.utils import filter_docs, short_token_hint
 
@@ -1169,10 +1173,10 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
 
     def _on_chat_provider_change():
         kind = st.session_state.get("chat_provider_choice")
-        if kind not in ("gigachat", "corp_async"):
+        if kind not in CHAT_PROVIDER_OPTIONS:
             return
         # Выбор действует только в текущей сессии. При следующем запуске
-        # снова используется провайдер из config/llm.json (по умолчанию МЭШ.ИИ.Хаб).
+        # снова используется МЭШ.ИИ.Хаб.
         st.session_state["api_kind"] = kind
 
     with st.sidebar:
@@ -1180,14 +1184,14 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
             st.markdown('<div class="chat-panel-title">Чат с ИИ</div>', unsafe_allow_html=True)
 
             has_history = bool(get_chat_messages(prefix))
-            current_kind = st.session_state.get("api_kind") or ctx.cfg.api_kind or "corp_async"
+            current_kind = selected_chat_provider()
             provider_labels = {"gigachat": "ГигаЧат", "corp_async": "МЭШ.ИИ.Хаб"}
-            if current_kind in provider_labels:
-                if st.session_state.get("chat_provider_choice") != current_kind:
+            if ctx.cfg.llm_mode != "ollama" and current_kind in provider_labels:
+                if st.session_state.get("chat_provider_choice") not in CHAT_PROVIDER_OPTIONS:
                     st.session_state["chat_provider_choice"] = current_kind
                 st.radio(
                     "Провайдер",
-                    options=["gigachat", "corp_async"],
+                    options=list(CHAT_PROVIDER_OPTIONS),
                     horizontal=True,
                     format_func=lambda kind: provider_labels[kind],
                     help=(
@@ -1197,6 +1201,8 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
                     key="chat_provider_choice",
                     on_change=_on_chat_provider_change,
                 )
+            elif ctx.cfg.llm_mode == "ollama":
+                st.caption("Активен локальный провайдер Ollama (dev-режим).")
             else:
                 st.caption("Активен OpenAI-совместимый провайдер (выбран в dev-настройках).")
 

@@ -16,12 +16,20 @@ def _prepare(tmp_path, monkeypatch):
     monkeypatch.setenv("ADL_ENV_FILE", str(empty_env))
 
 
+def test_chat_provider_defaults_to_corp(tmp_path, monkeypatch):
+    _prepare(tmp_path, monkeypatch)
+
+    at = AppTest.from_file(APP, default_timeout=120).run()
+
+    assert at.session_state["chat_provider_choice"] == "corp_async"
+    assert at.session_state["api_kind"] == "corp_async"
+
+
 def test_disabling_dev_mode_saves_last_edit(tmp_path, monkeypatch):
     _prepare(tmp_path, monkeypatch)
     at = AppTest.from_file(APP, default_timeout=120).run()
 
     at.toggle[0].set_value(True).run()
-    next(s for s in at.selectbox if s.label == "API type").set_value("gigachat").run()
     next(s for s in at.selectbox if s.label == "GigaChat model").set_value("GigaChat-2-Pro")
 
     # Один прогон: изменили поле и сразу выключили dev-режим.

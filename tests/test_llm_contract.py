@@ -22,7 +22,10 @@ from adl_smart_search.llm import (
     chat_with_continuation,
 )
 from adl_smart_search.prompts import PromptConfigError
-from adl_smart_search.ui.llm_provider import merged_corp_model_kwargs_json
+from adl_smart_search.ui.llm_provider import (
+    merged_corp_model_kwargs_json,
+    resolve_chat_provider,
+)
 
 
 def test_extract_corp_async_text_from_attributes_message_content():
@@ -496,6 +499,14 @@ def test_default_api_kind_is_corp_async():
 
     assert DEFAULT_API_KIND == "corp_async"
     assert AppConfig(adl_dir=".").api_kind == "corp_async"
+
+
+def test_resolve_chat_provider_limits_choices_and_defaults_to_corp():
+    assert resolve_chat_provider(None) == "corp_async"
+    assert resolve_chat_provider("") == "corp_async"
+    assert resolve_chat_provider("gigachat") == "gigachat"
+    assert resolve_chat_provider("corp_async") == "corp_async"
+    assert resolve_chat_provider("openai_compatible") == "corp_async"
 
 
 def test_corp_async_continuation_merges_parts(monkeypatch):

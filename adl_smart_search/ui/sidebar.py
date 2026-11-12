@@ -36,14 +36,13 @@ from adl_smart_search.ui.indexing import (
     delete_field_index_files,
 )
 from adl_smart_search.ui.llm_provider import (
-    API_KIND_OPTIONS,
     CORP_API_KIND,
-    DEFAULT_API_KIND,
     GIGACHAT_MODEL_OPTIONS,
     apply_corp_aux_catalog_selection,
     apply_corp_catalog_selection,
     load_ui_catalog,
     safe_load_json_dict,
+    selected_chat_provider,
 )
 from adl_smart_search.ui.settings import (
     LLM_SETTINGS_TYPES,
@@ -533,9 +532,6 @@ def _render_gigachat_settings(cfg: AppConfig):
             step=8000,
             key="gigachat_context_window",
         )
-    st.session_state["corp_context_window"] = int(
-        st.session_state.get("gigachat_context_window", cfg.gigachat_context_window) or 32000
-    )
     return {
         "gigachat_credentials": credentials,
         "gigachat_scope": scope,
@@ -803,7 +799,13 @@ def _render_corp_generation_settings(
 
 
 
-def _render_api_base_key_model(cfg: AppConfig, catalog: list[dict], provider_options: list[str]):
+def _render_api_base_key_model(
+    cfg: AppConfig,
+    catalog: list[dict],
+    provider_options: list[str],
+    *,
+    kind: str = CORP_API_KIND,
+):
     """
     Поля подключения для API-режима.
 
@@ -812,7 +814,6 @@ def _render_api_base_key_model(cfg: AppConfig, catalog: list[dict], provider_opt
     Возвращает dict с api_base_url, api_key, api_model, corp_provider,
     openai_base_url, openai_api_key, openai_model.
     """
-    kind = st.session_state.get("api_kind", CORP_API_KIND)
     out = {
         "api_base_url": st.session_state.get("api_base_url", ""),
         "api_key": st.session_state.get("api_key", ""),
@@ -1709,94 +1710,76 @@ def render_dev_settings(
                     disabled=not bool(st.session_state.get("ollama_use_num_predict", cfg.ollama_use_num_predict)),
                     key="ollama_num_predict",
                 )
-                api_kind = st.session_state.get("api_kind", DEFAULT_API_KIND)
+                api_kind = selected_chat_provider()
                 corp_model_kwargs_json = st.session_state.get("corp_model_kwargs_json", "{}") or "{}"
                 api_base_url = st.session_state.get("api_base_url", "")
                 api_key = st.session_state.get("api_key", "")
                 api_model = st.session_state.get("api_model", "")
                 corp_provider = st.session_state.get("corp_provider", "") or ""
             else:
-                # API mode (по умолчанию МЭШ.ИИ.Хаб)
-                if st.session_state.get("api_kind") not in API_KIND_OPTIONS:
-                    st.session_state["api_kind"] = DEFAULT_API_KIND
-                current_kind = st.session_state.get("api_kind", DEFAULT_API_KIND)
-                api_kind = st.selectbox(
-                    "API type",
-                    options=API_KIND_OPTIONS,
-                    index=API_KIND_OPTIONS.index(current_kind) if current_kind in API_KIND_OPTIONS else 0,
-                    format_func=lambda kind: {
-                        "gigachat": "ГигаЧат",
-                        "corp_async": "МЭШ.ИИ.Хаб",
-                        "openai_compatible": "OpenAI-совместимый",
-                    }.get(kind, kind),
-                    help="ГигаЧат / МЭШ.ИИ.Хаб / OpenAI-совместимый API.",
-                    key="api_kind",
+                # API mode: настройки обоих провайдеров редактируются всегда,
+                # активного выбирает радиокнопка в чате.
+                st.markdown("**МЭШ.ИИ.Хаб**")
+                corp_fields = _render_api_base_key_model(
+                    cfg, catalog, provider_options, kind="corp_async"
                 )
+                corp_model_kwargs_json = corp_fields.get(
+                    "corp_model_kwargs_json", corp_model_kwargs_json
+                )
+                corp_gen.update(
+                    {key: corp_fields[key] for key in corp_gen if key in corp_fields}
+                )
+                corp_aux_gen.update(
+                    {key: corp_fields[key] for key in corp_aux_gen if key in corp_fields}
+                )
+                cpt1, cpt2 = st.columns([1, 1])
+                with cpt1:
+                    corp_poll_timeout_s = st.number_input(
+                        "poll timeout (s)",
+                        min_value=10,
+                        max_value=600,
+                        value=int(
+                            st.session_state.get("corp_poll_timeout_s", cfg.corp_poll_timeout_s)
+                        ),
+                        key="corp_poll_timeout_s",
+                    )
+                with cpt2:
+                    corp_poll_interval_s = st.number_input(
+                        "poll interval (s)",
+                        min_value=0.2,
+                        max_value=10.0,
+                        value=float(
+                            st.session_state.get("corp_poll_interval_s", cfg.corp_poll_interval_s)
+                        ),
+                        key="corp_poll_interval_s",
+                    )
 
-                if api_kind == "gigachat":
-                    gc = _render_gigachat_settings(cfg)
-                    gigachat_credentials = gc["gigachat_credentials"]
-                    gigachat_scope = gc["gigachat_scope"]
-                    gigachat_model = gc["gigachat_model"]
-                    gigachat_base_url = gc["gigachat_base_url"]
-                    gigachat_ca_bundle_file = gc["gigachat_ca_bundle_file"]
-                    gigachat_verify_ssl_certs = gc["gigachat_verify_ssl_certs"]
-                    gigachat_timeout_s = gc["gigachat_timeout_s"]
-                    gigachat_temperature = gc["gigachat_temperature"]
-                    gigachat_max_tokens = gc["gigachat_max_tokens"]
-                    gigachat_context_window = gc["gigachat_context_window"]
-                    gigachat_aux_model = gc["gigachat_aux_model"]
-                    api_base_url = st.session_state.get("api_base_url", "")
-                    api_key = st.session_state.get("api_key", "")
-                    api_model = st.session_state.get("api_model", "")
-                    corp_provider = st.session_state.get("corp_provider", "") or ""
-                else:
-                    api_fields = _render_api_base_key_model(cfg, catalog, provider_options)
+                st.markdown("**ГигаЧат**")
+                gc = _render_gigachat_settings(cfg)
+                gigachat_credentials = gc["gigachat_credentials"]
+                gigachat_scope = gc["gigachat_scope"]
+                gigachat_model = gc["gigachat_model"]
+                gigachat_base_url = gc["gigachat_base_url"]
+                gigachat_ca_bundle_file = gc["gigachat_ca_bundle_file"]
+                gigachat_verify_ssl_certs = gc["gigachat_verify_ssl_certs"]
+                gigachat_timeout_s = gc["gigachat_timeout_s"]
+                gigachat_temperature = gc["gigachat_temperature"]
+                gigachat_max_tokens = gc["gigachat_max_tokens"]
+                gigachat_context_window = gc["gigachat_context_window"]
+                gigachat_aux_model = gc["gigachat_aux_model"]
 
-                    # Доп. параметры только для corp_async (ниже модели)
-                    if api_kind == "corp_async":
-                        corp_model_kwargs_json = api_fields.get(
-                            "corp_model_kwargs_json", corp_model_kwargs_json
-                        )
-                        corp_gen.update(
-                            {key: api_fields[key] for key in corp_gen if key in api_fields}
-                        )
-                        corp_aux_gen.update(
-                            {key: api_fields[key] for key in corp_aux_gen if key in api_fields}
-                        )
-                        cpt1, cpt2 = st.columns([1, 1])
-                        with cpt1:
-                            corp_poll_timeout_s = st.number_input(
-                                "poll timeout (s)",
-                                min_value=10,
-                                max_value=600,
-                                value=int(
-                                    st.session_state.get("corp_poll_timeout_s", cfg.corp_poll_timeout_s)
-                                ),
-                                key="corp_poll_timeout_s",
-                            )
-                        with cpt2:
-                            corp_poll_interval_s = st.number_input(
-                                "poll interval (s)",
-                                min_value=0.2,
-                                max_value=10.0,
-                                value=float(
-                                    st.session_state.get("corp_poll_interval_s", cfg.corp_poll_interval_s)
-                                ),
-                                key="corp_poll_interval_s",
-                            )
+                with st.expander("OpenAI-совместимый API (только dev)", expanded=False):
+                    openai_fields = _render_api_base_key_model(
+                        cfg, catalog, provider_options, kind="openai_compatible"
+                    )
 
-                ollama_model = st.session_state.get("ollama_model", "")
-                ollama_base_url = st.session_state.get("ollama_base_url", "")
-
-            if llm_mode != "ollama" and api_kind != "gigachat":
+                api_fields = {**corp_fields, **openai_fields}
                 api_base_url = api_fields["api_base_url"]
                 api_key = api_fields["api_key"]
                 api_model = api_fields["api_model"]
                 api_aux_model = api_fields.get("api_aux_model", "")
                 corp_provider = api_fields["corp_provider"]
-                if "corp_aux_provider" in api_fields:
-                    corp_aux_provider = api_fields["corp_aux_provider"] or ""
+                corp_aux_provider = api_fields.get("corp_aux_provider", "") or ""
                 corp_aux_model_kwargs_json = api_fields.get(
                     "corp_aux_model_kwargs_json", "{}"
                 )
@@ -1804,6 +1787,10 @@ def render_dev_settings(
                 openai_api_key = api_fields["openai_api_key"]
                 openai_model = api_fields["openai_model"]
                 openai_aux_model = api_fields.get("openai_aux_model", "")
+                api_kind = selected_chat_provider()
+
+                ollama_model = st.session_state.get("ollama_model", "")
+                ollama_base_url = st.session_state.get("ollama_base_url", "")
 
         with st.expander("Промпты", expanded=False):
             st.caption(

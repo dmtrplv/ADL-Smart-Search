@@ -41,6 +41,7 @@ from adl_smart_search.ui.llm_provider import (
     get_llm_provider,
     init_llm_session_defaults,
     missing_llm_fields_message,
+    selected_chat_provider,
 )
 from adl_smart_search.ui.settings import (
     apply_llm_settings,
@@ -383,6 +384,9 @@ def main():
                 st.stop()
 
     state.apply_to_cfg(cfg)
+    # Провайдер ИИ выбирается радиокнопкой в чате. Это должно произойти
+    # до get_llm_provider(), иначе выбор в интерфейсе не влияет на запросы.
+    cfg.api_kind = selected_chat_provider()
 
     # Миграция индексов в ./data при необходимости (только для старой раскладки).
     if not cfg.repo_root:

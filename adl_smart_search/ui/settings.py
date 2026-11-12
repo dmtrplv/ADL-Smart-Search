@@ -47,7 +47,6 @@ LLM_SETTINGS_TYPES: dict[str, type] = {
     "ollama_repeat_penalty": float,
     "ollama_use_num_predict": bool,
     "ollama_num_predict": int,
-    "api_kind": str,
     "api_base_url": str,
     "api_model": str,
     "openai_base_url": str,
