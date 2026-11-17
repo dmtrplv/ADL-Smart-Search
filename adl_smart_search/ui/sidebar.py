@@ -13,6 +13,7 @@ from adl_smart_search.app_paths import local_config_dir
 from adl_smart_search.config import AppConfig, from_env
 from adl_smart_search.corp_catalog import catalog_providers
 from adl_smart_search.index_build_info import save_kind_build_info
+from adl_smart_search.index_cache import clear_index_cache
 from adl_smart_search.index_files import (
     CKM_SOURCE,
     LOCAL_SOURCE,
@@ -27,7 +28,6 @@ from adl_smart_search.prompts import (
     prompts_path,
     save_prompts,
 )
-from adl_smart_search.sources import discover_sources_from_values, load_all
 from adl_smart_search.ui.context import prompts_from_session
 from adl_smart_search.ui.indexing import (
     build_archetype_index_with_progress,
@@ -265,14 +265,13 @@ def browse_adl_dir() -> None:
 
 
 def _reload_merged_indexes(cfg: AppConfig, adl_dir: str, index_dir: str, ckm_adl_dir: str):
-    """После пересборки индекса источника пересобираем объединённые массивы в сессии."""
-    specs = discover_sources_from_values(adl_dir, index_dir, ckm_adl_dir)
-    merged = load_all(cfg, specs)
-    st.session_state["docs"] = merged.docs
-    st.session_state["vectors"] = merged.vectors
-    st.session_state["field_docs"] = merged.field_docs
-    st.session_state["field_vectors"] = merged.field_vectors
-    return merged
+    """После пересборки сбрасывает общий кэш индексов.
+
+    Сами данные загрузятся в app.py на следующем rerun; в session_state копий
+    больше нет, поэтому старый набор освобождается.
+    """
+    clear_index_cache()
+    return None
 
 
 def _record_build_info(index_root: str, source: str, kind: str, cfg: AppConfig, embed_dim: int = 0) -> None:

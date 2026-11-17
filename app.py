@@ -24,17 +24,14 @@ from adl_smart_search.app_paths import (
 from adl_smart_search.config import from_env
 from adl_smart_search.embedder import warmup_embedder
 from adl_smart_search.env_file import load_app_envs
+from adl_smart_search.index_cache import get_index_resources
 from adl_smart_search.index_files import index_files_exist, source_index_dir
 from adl_smart_search.index_store import index_model_matches
 from adl_smart_search.logging_setup import setup_logging
 from adl_smart_search.prompts import PromptConfigError, load_prompts
-from adl_smart_search.rag import build_token_vocab
-from adl_smart_search.sources import CKM_SOURCE, LOCAL_SOURCE, discover_sources, load_all
+from adl_smart_search.sources import CKM_SOURCE, LOCAL_SOURCE, discover_sources
 from adl_smart_search.ui.context import TabContext, init_session_defaults
-from adl_smart_search.ui.indexing import (
-    maybe_move_legacy_indexes_to_data,
-    norm_rows,
-)
+from adl_smart_search.ui.indexing import maybe_move_legacy_indexes_to_data
 from adl_smart_search.ui.llm_provider import (
     get_aux_llm_provider,
     get_embedder,
@@ -47,7 +44,6 @@ from adl_smart_search.ui.settings import (
     apply_llm_settings,
     apply_search_settings,
     dev_mode_available,
-    docs_signature,
     is_dev_mode,
     load_effective_llm_settings,
     load_effective_settings,
@@ -393,46 +389,22 @@ def main():
         maybe_move_legacy_indexes_to_data(state.index_dir)
 
     sources = discover_sources(cfg)
-    merged = None
 
-    # Загружаем индексы только если они уже построены (без автопостроения)
-    docs = st.session_state.get("docs")
-    vectors = st.session_state.get("vectors")
-    field_docs = st.session_state.get("field_docs")
-    field_vectors = st.session_state.get("field_vectors")
+    # Индексы и векторы общие для всех сессий: копирование в session_state
+    # умножалось на каждую открытую вкладку/переподключение.
+    resources = get_index_resources(sources)
+    docs = resources.docs
+    vectors = resources.vectors
+    field_docs = resources.field_docs
+    field_vectors = resources.field_vectors
 
-    if docs is None or vectors is None or field_docs is None or field_vectors is None:
-        merged = load_all(cfg, sources)
-        docs = merged.docs
-        vectors = merged.vectors
-        field_docs = merged.field_docs
-        field_vectors = merged.field_vectors
-        st.session_state["docs"] = docs
-        st.session_state["vectors"] = vectors
-        st.session_state["field_docs"] = field_docs
-        st.session_state["field_vectors"] = field_vectors
-
-    # Нормализация векторов (cosine via dot product). Нужна для стабильного масштаба similarity,
-    # иначе keyword_bonus может "тонуть" на ненормализованных dot-product значениях.
-    vectors = norm_rows(vectors)
+    # Ссылки оставляем в session_state для совместимости; сами данные общие.
+    st.session_state["docs"] = docs
     st.session_state["vectors"] = vectors
-    field_vectors = norm_rows(field_vectors)
+    st.session_state["field_docs"] = field_docs
     st.session_state["field_vectors"] = field_vectors
-
-    # Словари токенов (для поддержки коротких запросов без хардкода)
-    if "arch_token_vocab" not in st.session_state:
-        st.session_state["arch_token_vocab"] = set()
-    if "field_token_vocab" not in st.session_state:
-        st.session_state["field_token_vocab"] = set()
-
-    arch_sig = docs_signature(docs)
-    field_sig = docs_signature(field_docs)
-    if st.session_state.get("arch_token_vocab_sig") != arch_sig:
-        st.session_state["arch_token_vocab"] = build_token_vocab(docs or [], field="anchor")
-        st.session_state["arch_token_vocab_sig"] = arch_sig
-    if st.session_state.get("field_token_vocab_sig") != field_sig:
-        st.session_state["field_token_vocab"] = build_token_vocab(field_docs or [], field="anchor")
-        st.session_state["field_token_vocab_sig"] = field_sig
+    st.session_state["arch_token_vocab"] = resources.arch_token_vocab
+    st.session_state["field_token_vocab"] = resources.field_token_vocab
 
     embedder = get_embedder(cfg.embed_model_name)
 
@@ -441,14 +413,13 @@ def main():
     # Если имя совпадает — индекс совместим, пропускаем. При legacy/отличии — помечаем
     # index_dir'ы для ленивой проверки dim при первом поиске (там модель и так нужна на encode).
     pending_dim_check: list[tuple[str, str]] = []
-    if merged is not None:
-        for bundle in merged.bundles:
-            if not bundle.is_built:
-                continue
-            for kind in ("archetype", "field"):
-                match = index_model_matches(bundle.spec.index_dir, cfg.embed_model_name, kind)
-                if match is False or match is None:
-                    pending_dim_check.append((bundle.spec.index_dir, kind))
+    for bundle in resources.bundles:
+        if not bundle.is_built:
+            continue
+        for kind in ("archetype", "field"):
+            match = index_model_matches(bundle.spec.index_dir, cfg.embed_model_name, kind)
+            if match is False or match is None:
+                pending_dim_check.append((bundle.spec.index_dir, kind))
     st.session_state["embed_dim_check_pending"] = pending_dim_check
 
     llm_provider = None

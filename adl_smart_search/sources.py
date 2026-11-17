@@ -138,9 +138,17 @@ def discover_sources(cfg: AppConfig) -> list[SourceSpec]:
     )
 
 
-def load_all(cfg: AppConfig, sources: list[SourceSpec] | None = None) -> MergedSources:
+def load_all(
+    cfg: AppConfig | None = None,
+    sources: list[SourceSpec] | None = None,
+) -> MergedSources:
     """Загружает индексы всех источников и склеивает их в единые массивы."""
-    specs = sources if sources is not None else discover_sources(cfg)
+    if sources is None:
+        if cfg is None:
+            raise ValueError("load_all: нужен cfg или sources")
+        specs = discover_sources(cfg)
+    else:
+        specs = sources
     bundles: list[SourceBundle] = []
 
     for spec in specs:
