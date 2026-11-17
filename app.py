@@ -261,6 +261,7 @@ def main():
         page_title="ADL Smart Search",
         page_icon=str(_APP_ICON) if _APP_ICON.is_file() else "🔍",
         layout="wide",
+        initial_sidebar_state="expanded",
     )
     if st.session_state.get("_shutting_down"):
         _render_shutdown_page()
@@ -301,7 +302,11 @@ def main():
     # Кнопка Deploy нужна только для Streamlit Community Cloud — в локальном приложении скрываем.
     st.markdown(
         '<style>[data-testid="stAppDeployButton"],.stAppDeployButton,'
-        '[aria-label="Deploy"]{display:none !important}' ".app-version{"
+        '[aria-label="Deploy"]{display:none !important}'
+        ".st-key-app_exit_btn button,.st-key-app_exit_btn button *{"
+        "white-space:normal;word-break:normal;overflow-wrap:normal;hyphens:none;"
+        "line-height:1.2}"
+        ".app-version{"
         "position:fixed;right:0.9rem;bottom:0.45rem;font-size:0.72rem;line-height:1;"
         "opacity:0.35;pointer-events:none;user-select:none;z-index:1000}</style>"
         f'<div class="app-version">v{__version__}</div>',

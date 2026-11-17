@@ -132,17 +132,26 @@ section[data-testid="stSidebar"][aria-expanded="true"] {
 section[data-testid="stSidebar"] div.stButton > button {
   white-space: normal;
   line-height: 1.2;
+  word-break: normal;
+  overflow-wrap: normal;
+  hyphens: none;
+}
+section[data-testid="stSidebar"] div.stButton > button * {
+  word-break: normal;
+  overflow-wrap: normal;
+  hyphens: none;
 }
 section[data-testid="stSidebar"] div[data-testid="stTextInput"] {
   min-width: 0 !important;
 }
 .chat-panel-title {
-  font-size: 0.8rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-  opacity: 0.65;
-  margin: 0 0 10px 0;
+  opacity: 0.72;
+  margin: 0 0 6px 0;
+  line-height: 1.2;
 }
 /* Бабблы чата: вопросы справа, ответы ИИ слева.
    Контейнеры имеют ключи вида <prefix>_chatmsg_<n>_user, класс .st-key-..._user. */
@@ -208,17 +217,22 @@ section[data-testid="stSidebar"] [data-testid="stChatMessageAvatarAssistant"] {
 /* Компактная шапка сайдбара: кнопка сворачивания остаётся, но над чатом
    больше нет 76 px пустоты — высвобождаем место под историю. */
 section[data-testid="stSidebar"] [data-testid="stSidebarHeader"] {
-  height: 2.5rem !important;
-  min-height: 2.5rem !important;
-  margin-bottom: 0.25rem !important;
+  height: 2.2rem !important;
+  min-height: 2.2rem !important;
+  margin-bottom: 0 !important;
 }
 section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
-  height: calc(100% - 2.75rem);
+  height: calc(100% - 2.2rem);
   min-height: 0;
+  padding-top: 0 !important;
   padding-bottom: 0 !important;
 }
+section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] > div:first-child {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
 section[data-testid="stSidebar"] [class*="chat_panel"] {
-  height: calc(100vh - 2.75rem) !important;
+  height: calc(100vh - 2.2rem) !important;
   flex: 0 0 auto !important;
   min-height: 0;
 }
