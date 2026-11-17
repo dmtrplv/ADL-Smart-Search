@@ -1,6 +1,10 @@
 import numpy as np
 import pytest
 
+from adl_smart_search.context_builder import (
+    _MISUSE_LABEL,
+    _field_archetype_header,
+)
 from adl_smart_search.orchestrator import (
     build_followup_dialog,
     handle_followup,
@@ -1147,4 +1151,90 @@ def test_context_document_limit_counts_source_groups():
     assert ctx.count("--- АРХЕТИП:") == 3
     assert "[local] ---" in ctx or "[ckm] ---" in ctx
     assert "third.v1" not in ctx
+
+
+def _field_doc(at_code: str, field: str, source: str = "local") -> dict:
+    return {
+        "file": "x/foo.adl",
+        "source": source,
+        "field": field,
+        "at_code": at_code,
+        "rm_type": "ELEMENT",
+        "node_kind": "value_leaf",
+        "has_desc": True,
+        "path": f"path > {field}",
+        "text": f"- {field} ({at_code}) | ELEMENT\n  Описание: {field}",
+    }
+
+
+ARCH_WITH_META = (
+    "МЕТАДАННЫЕ:\n"
+    'ЦЕЛЬ: "Описание концепции архетипа."\n'
+    'ИСПОЛЬЗОВАНИЕ: "Подробное описание использования."\n'
+    "КЛЮЧЕВЫЕ СЛОВА: вес, масса\n"
+    f"{_MISUSE_LABEL}: Не использовать не по назначению\n"
+    "\n"
+    "СТРУКТУРА:\n"
+    "- Вес (at0004) | ELEMENT\n"
+)
+
+
+def test_fields_context_adds_archetype_metadata_once():
+    fields = [_field_doc("at0004", "Вес"), _field_doc("at0024", "Комментарий")]
+
+    ctx = build_compact_context_for_fields(
+        query="вес",
+        selected_fields=fields,
+        archetype_docs_by_file={"x/foo.adl": {"full_context": ARCH_WITH_META}},
+        max_chars=20000,
+    )
+
+    assert ctx.count("--- АРХЕТИП:") == 1
+    assert "ЦЕЛЬ:" in ctx
+    assert "ИСПОЛЬЗОВАНИЕ:" in ctx
+    assert "КЛЮЧЕВЫЕ СЛОВА:" in ctx
+    assert ctx.count("--- ПОЛЕ:") == 2
+
+
+def test_fields_context_uses_source_specific_archetype():
+    fields = [_field_doc("at0004", "Weight", source="ckm")]
+    by_key = {
+        ("local", "x/foo.adl"): {
+            "full_context": "МЕТАДАННЫЕ:\nЦЕЛЬ: local goal\nСТРУКТУРА:\n"
+        },
+        ("ckm", "x/foo.adl"): {
+            "full_context": "МЕТАДАННЫЕ:\nЦЕЛЬ: ckm goal\nСТРУКТУРА:\n"
+        },
+    }
+
+    ctx = build_compact_context_for_fields(
+        query="weight",
+        selected_fields=fields,
+        archetype_docs_by_key=by_key,
+        max_chars=20000,
+    )
+
+    assert "ЦЕЛЬ: ckm goal" in ctx
+    assert "ЦЕЛЬ: local goal" not in ctx
+
+
+def test_field_archetype_header_shortens_long_use():
+    full = (
+        "МЕТАДАННЫЕ:\n"
+        "ЦЕЛЬ: Тестовая цель\n"
+        "ИСПОЛЬЗОВАНИЕ: " + ("очень длинное описание " * 300) + "\n"
+        "КЛЮЧЕВЫЕ СЛОВА: тест\n"
+        f"{_MISUSE_LABEL}: Нельзя\n"
+        "СТРУКТУРА:\n"
+    )
+
+    header = _field_archetype_header(
+        "foo", {"full_context": full}, _field_doc("at0004", "Вес"), 700
+    )
+
+    assert len(header) <= 700
+    assert "ИСПОЛЬЗОВАНИЕ:" in header
+    assert "…" in header
+    assert "ЦЕЛЬ:" in header
+    assert _MISUSE_LABEL in header
 

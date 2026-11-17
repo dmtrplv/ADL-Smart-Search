@@ -112,18 +112,90 @@ def _render_name(
     extra_s = (" | " + " | ".join(extras)) if extras else ""
     field_line = f"{field_name or '—'} ({at_code}) [{type_s}]{extra_s}"
     st.code(field_line, language=None)
-    st.code(str(path), language=None)
 
 
-def _render_details(doc: dict, md: dict, fn: str, source: str = "local") -> None:
-    with st.expander("Поле в архетипе", expanded=False):
-        st.html(
-            highlight_matches_html(
-                (doc.get("text") or "")[:8000],
-                (md or {}).get("matched_unique") or [],
-                (md or {}).get("matched_phrases") or [],
+_FIELD_LINE_RE = re.compile(r"^\s*-\s+.*\((at[0-9.]+)\)")
+
+
+def _field_block_span(text: str, at_code: str, field_name: str = "") -> tuple[int, int] | None:
+    """Границы блока поля в структуре архетипа (строка + значения/описание)."""
+    if not text or not at_code:
+        return None
+    lines = text.splitlines(keepends=True)
+    idx = None
+    for i, line in enumerate(lines):
+        m = _FIELD_LINE_RE.match(line)
+        if not m or m.group(1) != at_code:
+            continue
+        if not field_name or field_name.lower() in line.lower():
+            idx = i
+            break
+        if idx is None:
+            idx = i
+    if idx is None:
+        return None
+
+    start = sum(len(line) for line in lines[:idx])
+    end = start + len(lines[idx])
+    j = idx + 1
+    while j < len(lines):
+        line = lines[j]
+        stripped = line.strip()
+        if not stripped or _FIELD_LINE_RE.match(line) or not line[:1].isspace():
+            break
+        end += len(line)
+        j += 1
+    return start, end
+
+
+def _archetype_lookup(docs) -> tuple[dict, dict]:
+    """Архетипы по (source, file) и запасной индекс по одному file."""
+    by_key: dict[tuple[str, str], dict] = {}
+    by_file: dict[str, dict] = {}
+    for d in docs or []:
+        file_key = str(d.get("file") or "")
+        if not file_key:
+            continue
+        source = str(d.get("source") or "local")
+        by_key[(source, file_key)] = d
+        by_file.setdefault(file_key, d)
+    return by_key, by_file
+
+
+def _render_details(
+    doc: dict,
+    md: dict,
+    fn: str,
+    source: str = "local",
+    archetype_by_key: dict | None = None,
+    archetype_by_file: dict | None = None,
+) -> None:
+    field_name = (doc.get("field") or "").strip()
+    at_code = (doc.get("at_code") or "").strip()
+    file_key = str(doc.get("file") or "")
+    src = str(source or doc.get("source") or "local")
+    arch = (archetype_by_key or {}).get((src, file_key)) or (
+        archetype_by_file or {}
+    ).get(file_key)
+
+    with st.expander("Метаданные и структура архетипа", expanded=False):
+        if field_name or at_code:
+            st.caption(f"Поле: {field_name or '—'} ({at_code or '—'})")
+
+        matched = (md or {}).get("matched_unique") or []
+        phrases = (md or {}).get("matched_phrases") or []
+
+        if arch:
+            full = arch.get("full_context") or ""
+            focus = _field_block_span(full, at_code, field_name)
+            st.html(highlight_matches_html(full, matched, phrases, focus_span=focus))
+        else:
+            st.caption("Архетип не найден в индексе — показано только поле.")
+            st.html(
+                highlight_matches_html(
+                    (doc.get("text") or "")[:8000], matched, phrases
+                )
             )
-        )
 
 
 def _field_label(doc: dict) -> str:
@@ -143,7 +215,7 @@ def _field_label(doc: dict) -> str:
 
 
 def _build_field_context(ctx: TabContext, query: str, selected: list) -> str:
-    archetype_docs_by_file = {str(d.get("file") or ""): d for d in (ctx.docs or [])}
+    by_key, by_file = _archetype_lookup(ctx.docs)
     return build_compact_context_for_fields(
         query=query,
         selected_fields=selected,
@@ -152,11 +224,13 @@ def _build_field_context(ctx: TabContext, query: str, selected: list) -> str:
             st.session_state.get("context_tokens_fields", 10000)
         ),
         include_containers=False,
-        archetype_docs_by_file=archetype_docs_by_file,
+        archetype_docs_by_file=by_file,
+        archetype_docs_by_key=by_key,
     )
 
 
 def _make_field_spec(ctx: TabContext) -> SearchTabSpec:
+    archetype_by_key, archetype_by_file = _archetype_lookup(ctx.docs)
     return SearchTabSpec(
         prefix="field",
         top_caption="Поиск полей в архетипах",
@@ -175,7 +249,9 @@ def _make_field_spec(ctx: TabContext) -> SearchTabSpec:
         pick_all_label="Выбрать все поля",
         make_pick_key=lambda doc, idx: f"field_pick_{idx}_{doc.get('file', '')}_{doc.get('at_code', '')}",
         render_result_name=_render_name,
-        render_result_details=_render_details,
+        render_result_details=lambda doc, md, fn, source: _render_details(
+            doc, md, fn, source, archetype_by_key, archetype_by_file
+        ),
         result_label=_field_label,
         default_question_key="default_question_fields",
         build_context=lambda query, selected, embedder=None, query_en="", expanded_query=None: _build_field_context(

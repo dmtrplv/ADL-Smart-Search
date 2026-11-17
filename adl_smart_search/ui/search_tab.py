@@ -304,6 +304,14 @@ section[data-testid="stSidebar"] [class*="chat_composer"] textarea {
   font-size: 0.85rem;
   margin: 0;
 }
+.field-focus {
+  display: block;
+  margin: 2px 0;
+  padding: 2px 6px;
+  border-left: 3px solid rgba(255, 196, 0, 0.85);
+  border-radius: 4px;
+  background: rgba(255, 196, 0, 0.14);
+}
 </style>
 """
 
@@ -319,36 +327,72 @@ def _word_highlight_pattern(keywords):
     return re.compile(r"\b(?:" + "|".join(parts) + r")", flags=re.IGNORECASE)
 
 
-def highlight_matches_html(text: str, keywords, phrases=None) -> str:
-    """Текст с сохранением переносов, подсветкой фраз и отдельных слов."""
+def _mark_highlighted_segment(segment: str, pattern, phrases) -> str:
+    """Подсветка слов и фраз внутри уже экранированного фрагмента."""
+    if not segment:
+        return segment
+
+    def mark_words(part: str) -> str:
+        if pattern is None or not part:
+            return part
+        return pattern.sub(
+            lambda m: f'<span class="match-hl">{m.group(0)}</span>', part
+        )
+
+    spans = phrase_matches(segment, list(phrases or []))
+    if not spans:
+        return mark_words(segment)
+
+    out: list[str] = []
+    pos = 0
+    for start, end in spans:
+        out.append(mark_words(segment[pos:start]))
+        out.append(f'<span class="match-hl-phrase">{segment[start:end]}</span>')
+        pos = end
+    out.append(mark_words(segment[pos:]))
+    return "".join(out)
+
+
+def highlight_matches_html(text: str, keywords, phrases=None, focus_span=None) -> str:
+    """Текст с переносами, подсветкой фраз/слов и необязательной рамкой.
+
+    ``focus_span`` — (start, end) в исходном тексте; этот фрагмент выделяется
+    рамкой ``.field-focus`` (нужно для показа поля внутри структуры архетипа).
+    """
     # Именно <div>, а не <pre>: Streamlit превращает <pre> в свой stMarkdownPre
     # с white-space: normal, и переносы строк схлопываются в сплошной текст.
     open_tag = (
         '<div class="result-context" '
         'style="white-space: pre-wrap; word-break: break-word;">'
     )
-    body = html.escape(text or "")
+    raw = text or ""
+    body = html.escape(raw)
     pattern = _word_highlight_pattern(keywords)
-    spans = phrase_matches(body, list(phrases or []))
+    phrases = list(phrases or [])
 
-    def mark_words(segment: str) -> str:
-        if pattern is None or not segment:
-            return segment
-        return pattern.sub(
-            lambda m: f'<span class="match-hl">{m.group(0)}</span>', segment
-        )
+    focus: tuple[int, int] | None = None
+    if focus_span is not None:
+        try:
+            start = max(0, int(focus_span[0]))
+            end = min(len(raw), int(focus_span[1]))
+        except (TypeError, ValueError, IndexError):
+            start = end = 0
+        if start < end:
+            esc_start = len(html.escape(raw[:start]))
+            focus = (esc_start, esc_start + len(html.escape(raw[start:end])))
 
-    if not spans:
-        return f"{open_tag}{mark_words(body)}</div>"
+    if focus is None:
+        return f"{open_tag}{_mark_highlighted_segment(body, pattern, phrases)}</div>"
 
-    out: list[str] = []
-    pos = 0
-    for start, end in spans:
-        out.append(mark_words(body[pos:start]))
-        out.append(f'<span class="match-hl-phrase">{body[start:end]}</span>')
-        pos = end
-    out.append(mark_words(body[pos:]))
-    return f"{open_tag}{''.join(out)}</div>"
+    fs, fe = focus
+    before = _mark_highlighted_segment(body[:fs], pattern, phrases)
+    middle = _mark_highlighted_segment(body[fs:fe], pattern, phrases)
+    after = _mark_highlighted_segment(body[fe:], pattern, phrases)
+    return (
+        f"{open_tag}{before}"
+        f'<div class="field-focus">{middle}</div>'
+        f"{after}</div>"
+    )
 
 
 @dataclass(frozen=True)

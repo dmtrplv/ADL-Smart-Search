@@ -95,6 +95,29 @@ def _format_archetype_meta_block(*, purpose: str, use: str, misuse: str) -> str:
     return ("\n".join(lines) + "\n") if lines else ""
 
 
+def _extract_keywords_line(full_context: str) -> str:
+    if not full_context:
+        return ""
+    for ln in full_context.splitlines():
+        s = ln.strip()
+        if s.startswith("КЛЮЧЕВЫЕ СЛОВА:"):
+            return s[len("КЛЮЧЕВЫЕ СЛОВА:") :].strip()
+        if "СТРУКТУРА" in s:
+            break
+    return ""
+
+
+def _shorten_text(text: str, limit: int) -> str:
+    """Обрезает текст по границе слова, добавляя многоточие."""
+    text = " ".join((text or "").split())
+    if limit <= 0:
+        return ""
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rsplit(" ", 1)[0].rstrip(" ,;.")
+    return (cut or text[:limit].rstrip()) + "…"
+
+
 def _keywords_with_synonyms(query: str) -> List[str]:
     q = (query or "").lower()
     base = [w for w in re.findall(r"\w+", q) if len(w) > 2]
@@ -318,15 +341,79 @@ def build_compact_context_for_archetypes(
     return "\n".join(out)
 
 
-def _misuse_for_field(d: dict, archetype_docs_by_file: Dict[str, dict] | None = None) -> str:
+def _lookup_archetype(
+    d: dict,
+    archetype_docs_by_file: Dict | None = None,
+    archetype_docs_by_key: Dict | None = None,
+) -> dict | None:
+    file_key = str(d.get("file") or "")
+    source = str(d.get("source") or "local")
+    if archetype_docs_by_key:
+        arch = archetype_docs_by_key.get((source, file_key)) or archetype_docs_by_key.get(
+            file_key
+        )
+        if arch:
+            return arch
+    return (archetype_docs_by_file or {}).get(file_key)
+
+
+def _misuse_for_field(
+    d: dict,
+    archetype_docs_by_file: Dict | None = None,
+    archetype_docs_by_key: Dict | None = None,
+) -> str:
     misuse = (d.get("misuse") or "").strip()
     if misuse:
         return misuse
-    arch = (archetype_docs_by_file or {}).get(d.get("file") or "")
+    arch = _lookup_archetype(d, archetype_docs_by_file, archetype_docs_by_key)
     if arch:
         _, _, misuse_from_arch = _extract_metadata_lines(arch.get("full_context") or "")
         return misuse_from_arch
     return ""
+
+
+def _field_archetype_header(
+    fn: str,
+    archetype: dict | None,
+    field_doc: dict,
+    limit: int,
+) -> str:
+    """Метаданные архетипа для контекста поля: один раз на архетип.
+
+    ``ИСПОЛЬЗОВАНИЕ`` добавляется полностью, пока хватает ``limit``; иначе
+    сокращается. Цель, ключевые слова и misuse остаются всегда — они короткие
+    и важны для понимания концепции.
+    """
+    purpose = use = misuse = keywords = ""
+    if archetype:
+        full = archetype.get("full_context") or ""
+        purpose, use, misuse = _extract_metadata_lines(full)
+        keywords = _extract_keywords_line(full)
+    if not misuse:
+        misuse = (field_doc.get("misuse") or "").strip()
+
+    prefix = f"--- АРХЕТИП: {fn} ---\n"
+    head_lines: List[str] = []
+    tail_lines: List[str] = []
+    if purpose:
+        head_lines.append(f"ЦЕЛЬ: {purpose}")
+    if keywords:
+        tail_lines.append(f"КЛЮЧЕВЫЕ СЛОВА: {keywords}")
+    if misuse:
+        tail_lines.append(f"{_MISUSE_LABEL}: {misuse}")
+
+    base_len = len(prefix) + sum(len(x) + 1 for x in head_lines + tail_lines)
+    if use:
+        room = limit - base_len - len("ИСПОЛЬЗОВАНИЕ: ") - 1
+        if room >= 80:
+            head_lines.append("ИСПОЛЬЗОВАНИЕ: " + _shorten_text(use, room))
+    lines = head_lines + tail_lines
+    if not lines:
+        return ""
+    header = prefix + "\n".join(lines) + "\n"
+    if limit > 0 and len(header) > limit:
+        header = header[:limit].rsplit(" ", 1)[0].rstrip() + "…\n"
+    return header
 
 
 def build_compact_context_for_fields(
@@ -336,11 +423,16 @@ def build_compact_context_for_fields(
     max_items: int = 80,
     max_chars: int = 22000,
     include_containers: bool = False,
-    archetype_docs_by_file: Dict[str, dict] | None = None,
+    archetype_docs_by_file: Dict | None = None,
+    archetype_docs_by_key: Dict | None = None,
 ) -> str:
     budget = max(3000, int(max_chars))
-    out = []
-    picked = []
+    # Отдельный лимит на описания архетипов: длинные ИСПОЛЬЗОВАНИЕ не должны
+    # вытеснять сами поля. Полный текст — пока помещается, дальше сокращаем.
+    metadata_budget = max(0, int(budget * 0.35))
+    compact_meta_budget = max(0, int(budget * 0.15))
+    out: List[str] = []
+    picked: List[dict] = []
     for d in selected_fields:
         if include_containers:
             picked.append(d)
@@ -351,57 +443,83 @@ def build_compact_context_for_fields(
         if len(picked) >= max_items:
             break
 
-    seen_archetype_meta: set[str] = set()
+    # Поля одного архетипа идут рядом: заголовок с метаданными — один раз.
+    groups: Dict[tuple[str, str], List[dict]] = {}
+    order: List[tuple[str, str]] = []
     for d in picked:
-        fn = _display_file_name(d.get("file", ""))
-        field = d.get("field", "")
-        at_code = d.get("at_code", "")
-        text = (d.get("text") or "").strip()
-        rm_type = d.get("rm_type") or ""
-        path = d.get("path") or ""
+        source = str(d.get("source") or "local")
+        file_key = str(d.get("file") or "") or _display_file_name(d.get("file", ""))
+        key = (source, file_key)
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(d)
 
-        file_key = d.get("file", "") or fn
-        if file_key not in seen_archetype_meta:
-            seen_archetype_meta.add(file_key)
-            misuse = _misuse_for_field(d, archetype_docs_by_file)
-            if misuse:
-                archetype_meta = f"--- АРХЕТИП: {fn} ---\n{_MISUSE_LABEL}: {misuse}\n"
-                if len(archetype_meta) <= budget:
-                    out.append(archetype_meta)
-                    budget -= len(archetype_meta)
+    for key in order:
+        items = groups[key]
+        first = items[0]
+        fn = _display_file_name(first.get("file", ""))
+        archetype = _lookup_archetype(
+            first, archetype_docs_by_file, archetype_docs_by_key
+        )
+        if metadata_budget > 0:
+            header = _field_archetype_header(fn, archetype, first, metadata_budget)
+            if header:
+                if len(header) <= budget:
+                    out.append(header)
+                    budget -= len(header)
+                    metadata_budget -= len(header)
                 elif budget > 500:
-                    out.append(archetype_meta[:budget])
+                    out.append(header[:budget])
                     budget = 0
+                    metadata_budget = 0
+                    compact_meta_budget = 0
+        elif compact_meta_budget > 0:
+            # Основной лимит исчерпан — оставляем хотя бы цель и misuse.
+            header = _field_archetype_header(
+                fn, archetype, first, min(compact_meta_budget, 600)
+            )
+            if header and len(header) <= budget:
+                out.append(header)
+                budget -= len(header)
+                compact_meta_budget -= len(header)
 
-        extra = ""
-        if not include_containers and (d.get("node_kind") != "container"):
-            has_desc = bool(d.get("has_desc"))
-            if not has_desc:
-                pf = (d.get("parent_field") or "").strip()
-                pa = (d.get("parent_at_code") or "").strip()
-                pr = (d.get("parent_rm_type") or "").strip()
-                pd = (d.get("parent_desc") or "").strip()
-                pp = (d.get("parent_path") or "").strip()
-                if pf or pp:
-                    head = pp or pf
-                    meta = []
-                    if pa:
-                        meta.append(pa)
-                    if pr:
-                        meta.append(pr)
-                    meta_s = f" ({', '.join(meta)})" if meta else ""
-                    if pd:
-                        extra = f"\nКонтейнер: {head}{meta_s} — {pd}\n"
-                    else:
-                        extra = f"\nКонтейнер: {head}{meta_s}\n"
+        for d in items:
+            field = d.get("field", "")
+            at_code = d.get("at_code", "")
+            text = (d.get("text") or "").strip()
+            rm_type = d.get("rm_type") or ""
+            path = d.get("path") or ""
 
-        title = path if path else field
-        part = f"--- ПОЛЕ: {fn} — {title} ({at_code}) [{rm_type}] ---\n{text}{extra}\n"
-        if len(part) <= budget:
-            out.append(part)
-            budget -= len(part)
-        else:
-            if budget > 500:
-                out.append(part[:budget])
-            break
+            extra = ""
+            if not include_containers and (d.get("node_kind") != "container"):
+                has_desc = bool(d.get("has_desc"))
+                if not has_desc:
+                    pf = (d.get("parent_field") or "").strip()
+                    pa = (d.get("parent_at_code") or "").strip()
+                    pr = (d.get("parent_rm_type") or "").strip()
+                    pd = (d.get("parent_desc") or "").strip()
+                    pp = (d.get("parent_path") or "").strip()
+                    if pf or pp:
+                        head = pp or pf
+                        meta = []
+                        if pa:
+                            meta.append(pa)
+                        if pr:
+                            meta.append(pr)
+                        meta_s = f" ({', '.join(meta)})" if meta else ""
+                        if pd:
+                            extra = f"\nКонтейнер: {head}{meta_s} — {pd}\n"
+                        else:
+                            extra = f"\nКонтейнер: {head}{meta_s}\n"
+
+            title = path if path else field
+            part = f"--- ПОЛЕ: {fn} — {title} ({at_code}) [{rm_type}] ---\n{text}{extra}\n"
+            if len(part) <= budget:
+                out.append(part)
+                budget -= len(part)
+            else:
+                if budget > 500:
+                    out.append(part[:budget])
+                break
     return "\n".join(out)
