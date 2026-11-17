@@ -102,6 +102,7 @@ if (!(Test-Path $streamlitStatic)) {
 $baseName = "ADL-Smart-Search"
 $buildName = "$baseName-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
 $distOut = Join-Path $PSScriptRoot "dist\\$buildName"
+$appIcon = Join-Path $PSScriptRoot "adl_smart_search\\assets\\adl_search.ico"
 Write-Host "[INFO] Build name: $buildName"
 
 function Normalize-EmbedModelId {
@@ -207,6 +208,10 @@ $args = @(
   "--add-data", "README.md;."
 )
 
+if (Test-Path $appIcon) {
+  $args += @("--icon", $appIcon)
+}
+
 $args += "--onedir"
 
 & $venvPython -m PyInstaller @args launcher.py
@@ -222,6 +227,20 @@ if (-not (Test-Path $mainExeOld)) {
   exit 1
 }
 Move-Item -LiteralPath $mainExeOld -Destination (Join-Path $distOut "ADL-Smart-Search.exe") -Force
+
+# Streamlit отдаёт стандартную favicon из static раньше, чем app.py успевает
+# применить page_icon. Заменяем её в собранном onedir, чтобы корона не мигала.
+$appIconPng = Join-Path $PSScriptRoot "adl_smart_search\\assets\\adl_search.png"
+$faviconTargets = @(
+  (Join-Path $distOut "_internal\\streamlit\\static\\favicon.png"),
+  (Join-Path $distOut "streamlit\\static\\favicon.png")
+)
+foreach ($streamlitFavicon in $faviconTargets) {
+  if ((Test-Path $appIconPng) -and (Test-Path $streamlitFavicon)) {
+    Copy-Item -LiteralPath $appIconPng -Destination $streamlitFavicon -Force
+    Write-Host "[INFO] Streamlit favicon заменена на иконку приложения."
+  }
+}
 
 # Версия приложения для updater и release-манифеста.
 $appVersion = (& $venvPython -c "from adl_smart_search import __version__; print(__version__)").Trim()
@@ -261,6 +280,9 @@ $updaterArgs = @(
   "--name", "ADL-Smart-Search-Updater",
   "--distpath", $distOut
 )
+if (Test-Path $appIcon) {
+  $updaterArgs += @("--icon", $appIcon)
+}
 & $venvPython -m PyInstaller @updaterArgs updater_main.py
 if ($LASTEXITCODE -ne 0) {
   Write-Host "[ERROR] Сборка updater завершилась с ошибкой."
@@ -280,6 +302,9 @@ if ($WithIndexer) {
     "--name", "ADL-Smart-Search-Index",
     "--distpath", $distOut
   )
+  if (Test-Path $appIcon) {
+    $indexArgs += @("--icon", $appIcon)
+  }
   & $venvPython -m PyInstaller @indexArgs index_launcher.py
   if ($LASTEXITCODE -ne 0) {
     Write-Host "[ERROR] Сборка лаунчера индексатора завершилась с ошибкой."

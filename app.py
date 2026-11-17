@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 import threading
+from pathlib import Path
 
 import streamlit as st
 
@@ -61,6 +62,13 @@ from adl_smart_search.update_client import (
 )
 
 logger = logging.getLogger(__name__)
+
+_APP_ICON = (
+    Path(__file__).resolve().parent
+    / "adl_smart_search"
+    / "assets"
+    / "adl_search.png"
+)
 
 
 def _app_root() -> str:
@@ -249,7 +257,11 @@ def _render_update_notice(paths) -> None:
 
 
 def main():
-    st.set_page_config(page_title="ADL Smart Search", layout="wide")
+    st.set_page_config(
+        page_title="ADL Smart Search",
+        page_icon=str(_APP_ICON) if _APP_ICON.is_file() else "🔍",
+        layout="wide",
+    )
     if st.session_state.get("_shutting_down"):
         _render_shutdown_page()
         return
