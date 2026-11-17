@@ -44,6 +44,27 @@ def _display_file_name(path: str) -> str:
     return fn or (path or "")
 
 
+def _archetype_group_key(path: str) -> str:
+    """Имя архетипа с версией: local и CKM с одной версией — одна группа."""
+    return _display_file_name(path).lower()
+
+
+def _slice_documents_by_group(docs: List[dict], limit: int) -> List[dict]:
+    """Оставляет первые ``limit`` групп архетипов, включая обе версии источника."""
+    if limit <= 0:
+        return []
+    out: List[dict] = []
+    seen: list[str] = []
+    for d in docs:
+        key = _archetype_group_key(d.get("file", ""))
+        if key not in seen:
+            if len(seen) >= limit:
+                break
+            seen.append(key)
+        out.append(d)
+    return out
+
+
 def _extract_metadata_lines(full_context: str) -> tuple[str, str, str]:
     if not full_context:
         return "", "", ""
@@ -252,10 +273,23 @@ def build_compact_context_for_archetypes(
     docs = list(selected_docs or [])
     if max_documents and max_documents > 0:
         # selected_docs идут в порядке выдачи, поэтому срез = самые релевантные.
-        docs = docs[: int(max_documents)]
+        # Считаем слоты по группам, чтобы local+CKM версии одного архетипа
+        # не съедали два места.
+        docs = _slice_documents_by_group(docs, int(max_documents))
+
+    name_counts: Dict[str, int] = {}
+    for d in docs:
+        key = _archetype_group_key(d.get("file", ""))
+        name_counts[key] = name_counts.get(key, 0) + 1
 
     for d in docs:
         fn = _display_file_name(d.get("file", ""))
+        source = str(d.get("source") or "local")
+        source_suffix = (
+            f" [{source}]"
+            if name_counts.get(_archetype_group_key(d.get("file", "")), 0) > 1
+            else ""
+        )
         full_ctx = d.get("full_context", "") or ""
         purpose, use, misuse = _extract_metadata_lines(full_ctx)
         query_text = _query_text_for_doc(d, query, query_en, expanded_query, local_sources)
@@ -272,7 +306,7 @@ def build_compact_context_for_archetypes(
         if include_metadata:
             meta_block = _format_archetype_meta_block(purpose=purpose, use=use, misuse=misuse)
 
-        part = f"--- АРХЕТИП: {fn} ---\n{meta_block}{snippet}\n"
+        part = f"--- АРХЕТИП: {fn}{source_suffix} ---\n{meta_block}{snippet}\n"
         if len(part) <= budget:
             out.append(part)
             budget -= len(part)

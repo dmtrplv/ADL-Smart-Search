@@ -12,7 +12,7 @@ from adl_smart_search.ui.search_tab import (
     SearchTabSpec,
     highlight_matches_html,
     render_search_tab,
-    render_source_badge,
+    render_source_badges,
 )
 
 FIELD_STALE_WARNING = (
@@ -83,10 +83,16 @@ def _extract_values_and_units(d: dict) -> tuple[list[str], list[str]]:
     return values, units
 
 
-def _render_name(doc: dict, md: dict, dev_mode: bool, fn: str, source: str = "local") -> None:
+def _render_name(
+    doc: dict,
+    md: dict,
+    dev_mode: bool,
+    fn: str,
+    sources: list[str] | None = None,
+) -> None:
     path = doc.get("path") or doc.get("field", "")
     at_code = doc.get("at_code", "")
-    render_source_badge(source)
+    render_source_badges(sources or [doc.get("source") or "local"])
     st.code(fn, language=None)
     field_name = (doc.get("field") or "").strip()
     if not field_name:
@@ -109,8 +115,8 @@ def _render_name(doc: dict, md: dict, dev_mode: bool, fn: str, source: str = "lo
     st.code(str(path), language=None)
 
 
-def _render_details(doc: dict, md: dict, fn: str) -> None:
-    with st.expander("Показать описание поля", expanded=False):
+def _render_details(doc: dict, md: dict, fn: str, source: str = "local") -> None:
+    with st.expander("Поле в архетипе", expanded=False):
         st.html(
             highlight_matches_html(
                 (doc.get("text") or "")[:8000],

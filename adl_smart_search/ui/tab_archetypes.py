@@ -12,7 +12,7 @@ from adl_smart_search.ui.search_tab import (
     SearchTabSpec,
     highlight_matches_html,
     render_search_tab,
-    render_source_badge,
+    render_source_badges,
 )
 
 ARCH_STALE_WARNING = (
@@ -40,13 +40,39 @@ def _archetype_class_from_file(fn: str) -> str:
     return (m.group(1).upper() if m else "")
 
 
-def _render_name(doc: dict, md: dict, dev_mode: bool, fn: str, source: str = "local") -> None:
-    render_source_badge(source)
+def _archetype_version_key(doc: dict) -> str:
+    """Идентичность архетипа для схлопывания local+CKM: имя файла с версией.
+
+    Каталог источника не входит в ключ, поэтому одна и та же версия архетипа
+    из local и CKM попадает в одну группу. Версия сохраняется: между версиями
+    структура может заметно отличаться, и склеивать их нельзя.
+    """
+    name = os.path.basename(str(doc.get("file") or "").replace("\\", "/"))
+    if name.lower().endswith(".adl"):
+        name = name[:-4]
+    return name.lower()
+
+
+def _render_name(
+    doc: dict,
+    md: dict,
+    dev_mode: bool,
+    fn: str,
+    sources: list[str] | None = None,
+) -> None:
+    render_source_badges(sources or [doc.get("source") or "local"])
     st.code(fn, language=None)
 
 
-def _render_details(doc: dict, md: dict, fn: str) -> None:
-    with st.expander("Показать метаданные и структуру архетипа", expanded=False):
+def _render_details(doc: dict, md: dict, fn: str, source: str = "local") -> None:
+    src = str(source or "local").strip().lower()
+    if src == "ckm":
+        title = "Метаданные и структура архетипа из CKM"
+    elif src == "local":
+        title = "Метаданные и структура архетипа из локальной базы"
+    else:
+        title = f"Метаданные и структура архетипа ({source})"
+    with st.expander(title, expanded=False):
         st.html(
             highlight_matches_html(
                 doc.get("full_context", "")[:12000],
@@ -111,6 +137,7 @@ ARCH_SPEC = SearchTabSpec(
     stale_warning=ARCH_STALE_WARNING,
     context_tokens_key="context_tokens_archetypes",
     index_kind="archetype",
+    group_key=_archetype_version_key,
 )
 
 

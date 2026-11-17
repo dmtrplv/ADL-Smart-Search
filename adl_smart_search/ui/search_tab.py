@@ -369,9 +369,10 @@ class SearchTabSpec:
     result_count_label: str
     pick_all_label: str
     make_pick_key: Callable[[dict, int], str]
-    # (doc, match_debug, dev_mode, short_name, source) — source: "local" | "ckm"
-    render_result_name: Callable[[dict, dict, bool, str, str], None]
-    render_result_details: Callable[[dict, dict, str], None]
+    # (doc, match_debug, dev_mode, short_name, sources) — sources: ["local", "ckm"]
+    render_result_name: Callable[[dict, dict, bool, str, list[str]], None]
+    # (doc, match_debug, short_name, source)
+    render_result_details: Callable[[dict, dict, str, str], None]
     result_label: Callable[[dict], str]
 
     default_question_key: str
@@ -384,6 +385,8 @@ class SearchTabSpec:
     context_tokens_key: str = ""
     # Какой индекс показывать в датах у источников: "archetype" | "field".
     index_kind: str = ""
+    # Ключ схлопывания дублей local+CKM (None → не схлопывать).
+    group_key: Callable[[dict], str] | None = None
 
 
 def _index_date(index_dir: str, kind: str) -> str:
@@ -443,19 +446,76 @@ def _effective_cross_floor(ctx: TabContext, spec: SearchTabSpec) -> float:
     return float(ctx.sim_floor_pure_cross)
 
 
+def render_source_badges(sources) -> None:
+    """Цветные метки источников для одного результата (local, CKM)."""
+    keys: list[str] = []
+    for source in sources or ["local"]:
+        key = str(source or "local").strip().lower()
+        if key and key not in keys:
+            keys.append(key)
+    spans = []
+    for key in keys:
+        label = {"ckm": "CKM", "local": "local"}.get(key, key.upper())
+        spans.append(f'<span class="src-badge src-badge-{key}">{label}</span>')
+    st.markdown(" ".join(spans), unsafe_allow_html=True)
+
+
 def render_source_badge(source: str) -> None:
     """Цветная метка источника (local/CKM) вместо префикса в копируемом id."""
-    key = (source or "local").strip().lower()
-    if key == "ckm":
-        label = "CKM"
-    elif key == "local":
-        label = "local"
-    else:
-        label = key.upper()
-    st.markdown(
-        f'<span class="src-badge src-badge-{key}">{label}</span>',
-        unsafe_allow_html=True,
+    render_source_badges([source])
+
+
+def _short_file_name(doc: dict) -> str:
+    fn = os.path.basename(str(doc.get("file", "unknown")))
+    if fn.lower().endswith(".adl"):
+        fn = fn[:-4]
+    return fn
+
+
+def _group_result_indices(
+    indices: list[int],
+    docs: list[dict],
+    group_key,
+) -> list[list[int]]:
+    """Схлопывает результаты с одинаковым ключом из разных источников.
+
+    ``indices`` уже упорядочены по релевантности, поэтому группа встаёт на
+    место первого (лучшего) представителя. Документы одного и того же источника
+    не сливаются: одинаковое имя в local дважды — это два разных результата.
+    """
+    if group_key is None:
+        return [[int(i)] for i in indices]
+
+    groups: list[list[int]] = []
+    by_key: dict[str, list[int]] = {}
+    for idx in indices:
+        idx = int(idx)
+        doc = docs[idx]
+        key = str(group_key(doc) or "")
+        if not key:
+            groups.append([idx])
+            continue
+        source = str(doc.get("source") or "local")
+        for gi in by_key.get(key, []):
+            group_sources = {str(docs[i].get("source") or "local") for i in groups[gi]}
+            if source not in group_sources:
+                groups[gi].append(idx)
+                break
+        else:
+            groups.append([idx])
+            by_key.setdefault(key, []).append(len(groups) - 1)
+    return groups
+
+
+def _group_pick_key(prefix: str, docs: list[dict], indices: list[int]) -> str:
+    """Стабильный ключ чекбокса для группы результатов."""
+    ident = "|".join(
+        sorted(
+            f"{docs[i].get('source') or 'local'}:{docs[i].get('file') or i}"
+            for i in indices
+        )
     )
+    return f"{prefix}_pick_group_{ident}"
 
 
 def _dev_penalty_reason(md: dict) -> str:
@@ -873,6 +933,7 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
 
         if len(f_docs) == 0 or f_vecs.size == 0:
             st.session_state[f"{prefix}_top_indices"] = []
+            st.session_state[f"{prefix}_result_groups"] = []
             st.session_state[f"{prefix}_visible_count"] = 0
             st.session_state[f"{prefix}_match_debug"] = {}
             st.session_state[f"{prefix}_scores"] = []
@@ -1015,7 +1076,17 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
             z_back = {back[i]: float(zscores.get(i, 0.0)) for i in candidate_local}
 
             st.session_state[f"{prefix}_top_indices"] = top_indices
-            st.session_state[f"{prefix}_visible_count"] = min(len(top_local), _SHOW_MORE_LIMIT)
+            result_groups = _group_result_indices(top_indices, docs, spec.group_key)
+            picked_groups = _group_result_indices(
+                [back[i] for i in top_local], docs, spec.group_key
+            )
+            st.session_state[f"{prefix}_result_groups"] = result_groups
+            # Сначала показываем только первичный топ, как и до группировки;
+            # остальные кандидаты остаются за «Показать ещё».
+            st.session_state[f"{prefix}_visible_count"] = min(
+                len(picked_groups) if picked_groups else len(result_groups),
+                _SHOW_MORE_LIMIT,
+            )
             # Новый поиск: «Выбрать все» сбрасываем, галочки прошлой выдачи не трогаем.
             st.session_state[f"{prefix}_pick_all"] = False
             st.session_state[f"{prefix}_match_debug"] = debug_back
@@ -1038,14 +1109,19 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
         st.session_state["last_query"] = query
 
     all_indices = st.session_state.get(f"{prefix}_top_indices") or []
+    all_groups = st.session_state.get(f"{prefix}_result_groups") or []
+    if not all_groups and all_indices:
+        # Старая сессия без сохранённых групп либо негруппируемая вкладка.
+        all_groups = _group_result_indices(all_indices, docs or [], spec.group_key)
     try:
         visible_count = int(st.session_state.get(f"{prefix}_visible_count") or 0)
     except (TypeError, ValueError):
         visible_count = 0
     if visible_count <= 0:
-        visible_count = len(all_indices)
-    visible_count = max(0, min(visible_count, len(all_indices), _SHOW_MORE_LIMIT))
-    top_indices = all_indices[:visible_count]
+        visible_count = len(all_groups)
+    visible_count = max(0, min(visible_count, len(all_groups), _SHOW_MORE_LIMIT))
+    visible_groups = all_groups[:visible_count]
+    top_indices = [i for group in visible_groups for i in group]
     match_debug = st.session_state.get(f"{prefix}_match_debug") or {}
     score_by_idx = st.session_state.get(f"{prefix}_score_by_idx") or {}
     sim_by_idx = st.session_state.get(f"{prefix}_similarity_by_idx") or {}
@@ -1121,10 +1197,12 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
         except (TypeError, ValueError):
             persisted_selected = set()
         if top_indices:
-            if len(all_indices) > len(top_indices):
-                st.write(f"{spec.result_count_label} {len(top_indices)} из {len(all_indices)}")
+            if len(all_groups) > len(visible_groups):
+                st.write(
+                    f"{spec.result_count_label} {len(visible_groups)} из {len(all_groups)}"
+                )
             else:
-                st.write(f"{spec.result_count_label} {len(top_indices)}")
+                st.write(f"{spec.result_count_label} {len(visible_groups)}")
 
             if ctx.dev_mode:
                 st.caption(dev_legend(ctx.keyword_bonus, ctx.phrase_bonus))
@@ -1148,14 +1226,24 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
                 else:
                     st.warning("Часть результатов слабо совпадает с запросом и может быть нерелевантной.")
 
-            # "Выбрать все" для текущей выдачи
-            pick_keys = [spec.make_pick_key(docs[idx], idx) for idx in top_indices]
+            # "Выбрать все" для текущей выдачи: один ключ на группу результатов.
+            if spec.group_key is not None:
+                pick_keys = [_group_pick_key(prefix, docs, group) for group in visible_groups]
+            else:
+                pick_keys = [
+                    spec.make_pick_key(docs[group[0]], group[0]) for group in visible_groups
+                ]
             st.session_state[f"{prefix}_pick_keys"] = pick_keys
+
+            def _group_checked(key: str, group: list[int]) -> bool:
+                if key in st.session_state:
+                    return bool(st.session_state.get(key))
+                return all(i in persisted_selected for i in group)
 
             all_selected = (
                 all(
-                    (bool(st.session_state.get(k)) if k in st.session_state else (idx in persisted_selected))
-                    for k, idx in zip(pick_keys, top_indices)
+                    _group_checked(key, group)
+                    for key, group in zip(pick_keys, visible_groups)
                 )
                 if pick_keys
                 else False
@@ -1168,57 +1256,58 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
                 args=(prefix,),
             )
 
-            for n, idx in enumerate(top_indices, start=1):
-                doc = docs[idx]
-                key = spec.make_pick_key(doc, idx)
-                score_s = score_by_idx.get(idx)
-                sim_s = sim_by_idx.get(idx)
-                bonus_s = bonus_by_idx.get(idx)
-                penalty_s = penalty_by_idx.get(idx)
-                z_s = zscore_by_idx.get(idx)
-                md = match_debug.get(idx) or {}
-                fn_full = doc.get("file", "unknown")
-                fn = os.path.basename(fn_full)
-                if fn.lower().endswith(".adl"):
-                    fn = fn[:-4]
+            for n, group in enumerate(visible_groups, start=1):
+                primary_idx = group[0]
+                doc = docs[primary_idx]
+                key = pick_keys[n - 1]
+                sources = [docs[i].get("source") or "local" for i in group]
+                md = match_debug.get(primary_idx) or {}
+                fn = _short_file_name(doc)
                 with st.container(border=True):
                     c_pick, c_name = st.columns([1, 13], vertical_alignment="center")
                     with c_pick:
                         picked = st.checkbox(
                             f"#{n}",
                             key=key,
-                            value=(
-                                bool(st.session_state.get(key))
-                                if key in st.session_state
-                                else (idx in persisted_selected)
-                            ),
+                            value=_group_checked(key, group),
                             on_change=_sync_pick_all,
                             args=(prefix,),
                         )
                     with c_name:
-                        spec.render_result_name(doc, md, ctx.dev_mode, fn, doc.get("source") or "local")
+                        spec.render_result_name(doc, md, ctx.dev_mode, fn, sources)
                     if ctx.dev_mode:
-                        render_dev_result_info(
-                            score=score_s,
-                            sim=sim_s,
-                            bonus=bonus_s,
-                            penalty=penalty_s,
-                            md=md,
-                            keyword_bonus=ctx.keyword_bonus,
-                            phrase_bonus=ctx.phrase_bonus,
-                            zscore=z_s,
-                            low_confidence=idx in weak_set,
-                        )
-                    elif idx in weak_set:
+                        for member_idx in group:
+                            if len(group) > 1:
+                                member_src = docs[member_idx].get("source") or "local"
+                                st.caption(f"Источник: {member_src}")
+                            render_dev_result_info(
+                                score=score_by_idx.get(member_idx),
+                                sim=sim_by_idx.get(member_idx),
+                                bonus=bonus_by_idx.get(member_idx),
+                                penalty=penalty_by_idx.get(member_idx),
+                                md=match_debug.get(member_idx) or {},
+                                keyword_bonus=ctx.keyword_bonus,
+                                phrase_bonus=ctx.phrase_bonus,
+                                zscore=zscore_by_idx.get(member_idx),
+                                low_confidence=member_idx in weak_set,
+                            )
+                    elif primary_idx in weak_set:
                         st.caption("Возможно, нерелевантно.")
                     if picked:
-                        selected_idx.append(idx)
-                    spec.render_result_details(doc, md, fn)
+                        selected_idx.extend(group)
+                    for member_idx in group:
+                        member_doc = docs[member_idx]
+                        spec.render_result_details(
+                            member_doc,
+                            match_debug.get(member_idx) or {},
+                            _short_file_name(member_doc),
+                            member_doc.get("source") or "local",
+                        )
 
             st.session_state[f"{prefix}_selected"] = selected_idx
             st.session_state[f"{prefix}_selected_persisted"] = selected_idx
 
-            remaining = len(all_indices) - len(top_indices)
+            remaining = len(all_groups) - len(visible_groups)
             if remaining > 0:
                 step = min(_SHOW_MORE_STEP, remaining)
 
@@ -1227,7 +1316,7 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
                     # снимаем его, уже отмеченные результаты остаются выбранными.
                     st.session_state[f"{prefix}_visible_count"] = min(
                         int(st.session_state.get(f"{prefix}_visible_count") or 0) + _SHOW_MORE_STEP,
-                        len(st.session_state.get(f"{prefix}_top_indices") or []),
+                        len(st.session_state.get(f"{prefix}_result_groups") or []),
                         _SHOW_MORE_LIMIT,
                     )
                     st.session_state[f"{prefix}_pick_all"] = False

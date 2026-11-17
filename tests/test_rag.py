@@ -1102,3 +1102,49 @@ def test_build_compact_context_for_archetypes_lexical_without_embedder():
     ctx = build_compact_context_for_archetypes(query="ивл", selected_docs=docs, max_chars=5000)
     assert "ИВЛ" in ctx
 
+
+def test_context_labels_duplicate_archetype_versions_by_source():
+    docs = [
+        {
+            "file": "Local/Observations/openEHR-EHR-OBSERVATION.body_weight.v2.adl",
+            "source": "local",
+            "full_context": "СТРУКТУРА:\n- Вес (at0004): DV_QUANTITY\n",
+        },
+        {
+            "file": "entry/observation/openEHR-EHR-OBSERVATION.body_weight.v2.adl",
+            "source": "ckm",
+            "full_context": "STRUCTURE:\n- Weight (at0004): DV_QUANTITY\n",
+        },
+    ]
+
+    ctx = build_compact_context_for_archetypes(
+        query="вес", selected_docs=docs, max_chars=5000
+    )
+
+    assert "--- АРХЕТИП: openEHR-EHR-OBSERVATION.body_weight.v2 [local] ---" in ctx
+    assert "--- АРХЕТИП: openEHR-EHR-OBSERVATION.body_weight.v2 [ckm] ---" in ctx
+
+
+def test_context_document_limit_counts_source_groups():
+    def doc(path: str, source: str) -> dict:
+        return {
+            "file": path,
+            "source": source,
+            "full_context": f"СТРУКТУРА:\n- Поле ({path}): значение\n",
+        }
+
+    docs = [
+        doc("local/openEHR-EHR-OBSERVATION.dup.v1.adl", "local"),
+        doc("ckm/openEHR-EHR-OBSERVATION.dup.v1.adl", "ckm"),
+        doc("local/openEHR-EHR-OBSERVATION.other.v1.adl", "local"),
+        doc("local/openEHR-EHR-OBSERVATION.third.v1.adl", "local"),
+    ]
+
+    ctx = build_compact_context_for_archetypes(
+        query="поле", selected_docs=docs, max_documents=2, max_chars=20000
+    )
+
+    assert ctx.count("--- АРХЕТИП:") == 3
+    assert "[local] ---" in ctx or "[ckm] ---" in ctx
+    assert "third.v1" not in ctx
+

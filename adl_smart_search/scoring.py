@@ -639,10 +639,11 @@ def compute_scores_multilingual(
             enable_lexical=lexical_ok,
             similarities=sims_grp,
             normalize_lexical=False,
-            # Словосочетания ищем только в локальном языке: в CKM/кросс-языке
-            # перевод ломает границы фразы, поэтому фразовый бонус там выключен.
-            phrase_bonus=phrase_bonus if group_name == "local" else 0.0,
-            phrase_query=query,
+            # Фразы ищем по языку источника: local — исходный/расширенный запрос,
+            # CKM — английский перевод. Если перевода нет, лексика уже отключена
+            # (lexical_ok=False), и фразы тоже не ищутся.
+            phrase_bonus=phrase_bonus,
+            phrase_query=query if group_name == "local" else (q_en if lexical_ok else None),
         )
         g_phrase = np.array(
             [

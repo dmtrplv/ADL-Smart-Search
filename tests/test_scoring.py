@@ -170,6 +170,48 @@ def test_phrase_matches_inflected_words():
     assert md[0]["phrase"] == 1.0
 
 
+def test_ckm_phrase_gets_bonus_from_translated_query():
+    docs = [_doc("ckm.adl", "blood group and rhesus status", source="ckm")]
+    vectors = np.zeros((1, 8), dtype=np.float32)
+    vectors[0, 0] = 1.0
+
+    scores, sims, _bonus, _penalty, md = compute_scores_multilingual(
+        query="группа крови",
+        query_en="blood group",
+        docs=docs,
+        vectors=vectors,
+        embedder=_MockEmbedder(),
+        keyword_bonus=0.0,
+        phrase_bonus=0.5,
+        local_sources=("local",),
+    )
+
+    assert md[0]["matched_phrases"] == ["blood group"]
+    assert md[0]["phrase"] == 1.0
+    assert scores[0] > sims[0]
+
+
+def test_ckm_without_translation_has_no_phrase_bonus():
+    docs = [_doc("ckm.adl", "blood group and rhesus status", source="ckm")]
+    vectors = np.zeros((1, 8), dtype=np.float32)
+    vectors[0, 0] = 1.0
+
+    scores, sims, _bonus, _penalty, md = compute_scores_multilingual(
+        query="группа крови",
+        query_en="группа крови",
+        docs=docs,
+        vectors=vectors,
+        embedder=_MockEmbedder(),
+        keyword_bonus=0.0,
+        phrase_bonus=0.5,
+        local_sources=("local",),
+    )
+
+    assert not md.get(0, {}).get("matched_phrases")
+    assert md[0]["lexical_enabled"] is False
+    assert np.isclose(scores[0], sims[0])
+
+
 def test_lexical_bonus_scales_with_query_coverage():
     """Документ, совпавший только с частью запроса, получает меньший бонус."""
     docs = [
