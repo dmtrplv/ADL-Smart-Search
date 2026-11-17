@@ -28,6 +28,8 @@ FULL = {
     "query_expand_user": "Запрос: {query}",
     "translate": "ПЕРЕВОД",
     "translate_user": "Переведи: {query}",
+    "ui_translate": "ПЕРЕВОД КОНТЕКСТА",
+    "ui_translate_user": "Текст: {text}",
 }
 
 
@@ -53,6 +55,17 @@ def test_load_prompts_reads_all_keys(tmp_path):
     _write_prompts(tmp_path, FULL)
 
     assert load_prompts(str(tmp_path)) == FULL
+
+
+def test_load_prompts_allows_missing_optional_ui_translate(tmp_path):
+    data = {k: v for k, v in FULL.items() if not k.startswith("ui_translate")}
+    _write_prompts(tmp_path, data)
+
+    loaded = load_prompts(str(tmp_path))
+
+    assert loaded["ui_translate"] == ""
+    assert loaded["ui_translate_user"] == ""
+    assert loaded["translate"] == FULL["translate"]
 
 
 def test_load_prompts_missing_file_raises(tmp_path):

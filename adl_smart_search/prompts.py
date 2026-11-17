@@ -17,7 +17,7 @@ PROMPT_FILENAME = "prompts.json"
 
 # Системный промпт редактируется отдельным большим полем, остальные части —
 # отдельными блоками в dev-панели.
-PROMPT_KEYS = (
+REQUIRED_PROMPT_KEYS = (
     "system_prompt",
     "default_question_archetypes",
     "default_question_fields",
@@ -28,6 +28,10 @@ PROMPT_KEYS = (
     "translate",
     "translate_user",
 )
+# Необязательные промпты: перевод CKM-контекста в UI. Старые конфиги без них
+# должны загружаться; кнопка перевода просто будет недоступна.
+OPTIONAL_PROMPT_KEYS = ("ui_translate", "ui_translate_user")
+PROMPT_KEYS = REQUIRED_PROMPT_KEYS + OPTIONAL_PROMPT_KEYS
 PROMPT_PART_KEYS = (
     "default_question_archetypes",
     "default_question_fields",
@@ -37,6 +41,8 @@ PROMPT_PART_KEYS = (
     "query_expand_user",
     "translate",
     "translate_user",
+    "ui_translate",
+    "ui_translate_user",
 )
 
 PROMPT_LABELS: dict[str, str] = {
@@ -60,6 +66,10 @@ PROMPT_LABELS: dict[str, str] = {
     "translate_user": (
         "Перевод запроса: сообщение пользователя (используйте {query})"
     ),
+    "ui_translate": "Перевод CKM-контекста в интерфейсе (системный промпт)",
+    "ui_translate_user": (
+        "Перевод CKM-контекста: сообщение пользователя (используйте {text})"
+    ),
 }
 
 
@@ -74,7 +84,7 @@ def apply_query_placeholder(text: str, query: str | None) -> str:
     return str(text or "").replace("{query}", (query or "").strip())
 
 
-def apply_placeholders(text: str, **values: str) -> str:
+def apply_placeholders(template: str, **values: str) -> str:
     """Подставляет значения вида ``{name}``, не трогая остальные скобки.
 
     Один проход вместо ``str.format``: в промптах могут встречаться JSON-примеры
@@ -87,7 +97,7 @@ def apply_placeholders(text: str, **values: str) -> str:
         value = values[name]
         return str(value if value is not None else "")
 
-    return re.sub(r"\{([A-Za-z_][A-Za-z0-9_]*)\}", _sub, str(text or ""))
+    return re.sub(r"\{([A-Za-z_][A-Za-z0-9_]*)\}", _sub, str(template or ""))
 
 
 def prompt_text(prompts: dict, key: str) -> str:
@@ -145,19 +155,19 @@ def load_prompts(config_dir: str) -> dict[str, str]:
         raise PromptConfigError(f"Не удалось прочитать файл промптов {path}: {e}") from e
     if not isinstance(data, dict):
         raise PromptConfigError(f"Файл промптов {path} должен содержать JSON-объект.")
-    missing = [key for key in PROMPT_KEYS if not isinstance(data.get(key), str) or not data[key].strip()]
+    missing = [key for key in REQUIRED_PROMPT_KEYS if not isinstance(data.get(key), str) or not data[key].strip()]
     if missing:
         raise PromptConfigError(
             f"В файле промптов {path} отсутствуют или пусты обязательные ключи: "
             + ", ".join(missing)
         )
-    return {key: data[key] for key in PROMPT_KEYS}
+    return {key: str(data.get(key) or "") for key in PROMPT_KEYS}
 
 
 def save_prompts(config_dir: str, prompts: dict) -> bool:
     """Записывает полный набор промптов в ``config/prompts.json``."""
     data = {key: str((prompts or {}).get(key) or "") for key in PROMPT_KEYS}
-    missing = [key for key in PROMPT_KEYS if not data[key].strip()]
+    missing = [key for key in REQUIRED_PROMPT_KEYS if not data[key].strip()]
     if missing:
         raise PromptConfigError(
             "Нельзя сохранить пустые обязательные промпты: " + ", ".join(missing)

@@ -11,6 +11,7 @@ from adl_smart_search.ui.context import TabContext
 from adl_smart_search.ui.search_tab import (
     SearchTabSpec,
     highlight_matches_html,
+    render_context_with_translation,
     render_search_tab,
     render_source_badges,
 )
@@ -64,7 +65,14 @@ def _render_name(
     st.code(fn, language=None)
 
 
-def _render_details(doc: dict, md: dict, fn: str, source: str = "local") -> None:
+def _render_details(
+    doc: dict,
+    md: dict,
+    fn: str,
+    source: str = "local",
+    ctx=None,
+    prompts: dict | None = None,
+) -> None:
     src = str(source or "local").strip().lower()
     if src == "ckm":
         title = "Метаданные и структура архетипа из CKM"
@@ -73,13 +81,20 @@ def _render_details(doc: dict, md: dict, fn: str, source: str = "local") -> None
     else:
         title = f"Метаданные и структура архетипа ({source})"
     with st.expander(title, expanded=False):
-        st.html(
-            highlight_matches_html(
-                doc.get("full_context", "")[:12000],
-                (md or {}).get("matched_unique") or [],
-                (md or {}).get("matched_phrases") or [],
+        text = doc.get("full_context", "")[:12000]
+        matched = (md or {}).get("matched_unique") or []
+        phrases = (md or {}).get("matched_phrases") or []
+        if src == "ckm" and ctx is not None:
+            render_context_with_translation(
+                text,
+                matched,
+                phrases,
+                cache_key=f"arch:{src}:{doc.get('file') or ''}",
+                ctx=ctx,
+                prompts=prompts or {},
             )
-        )
+        else:
+            st.html(highlight_matches_html(text, matched, phrases))
 
 
 def _archetype_label(doc: dict) -> str:

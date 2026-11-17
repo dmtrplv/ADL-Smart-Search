@@ -183,6 +183,43 @@ def build_translate_prompt(query: str, template: str) -> str:
     )
 
 
+def translate_context_to_ru(
+    text: str,
+    llm_provider: Any,
+    *,
+    system: str | None = None,
+    user_template: str | None = None,
+    max_chars: int = 12000,
+) -> str:
+    """Перевод показанного CKM-контекста на русский (кнопка в UI).
+
+    В отличие от перевода поискового запроса здесь переводится длинный текст
+    архетипа. Промпт обязан сохранять at-коды, id архетипов, типы и структуру;
+    это задаётся в ``ui_translate`` / ``ui_translate_user``.
+    """
+    src = (text or "").strip()
+    if not src:
+        return ""
+    limit = max(1000, int(max_chars))
+    if len(src) > limit:
+        src = src[:limit].rstrip()
+
+    system_prompt = _required_system(system)
+    prompt = build_translate_context_prompt(src, user_template or "")
+    raw = llm_provider.generate(prompt, system=system_prompt)
+    return (raw or "").strip()
+
+
+def build_translate_context_prompt(text: str, template: str) -> str:
+    tmpl = _required_user_template(template, "ui_translate_user")
+    if "{text}" not in tmpl:
+        raise PromptConfigError(
+            "В промпте <ui_translate_user> нет плейсхолдера {text}: "
+            "проверьте config/prompts.json."
+        )
+    return apply_placeholders(tmpl, text=text)
+
+
 def translate_query_to_en(
     query: str,
     llm_provider: Any,

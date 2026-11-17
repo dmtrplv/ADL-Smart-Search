@@ -11,6 +11,7 @@ from adl_smart_search.ui.context import TabContext
 from adl_smart_search.ui.search_tab import (
     SearchTabSpec,
     highlight_matches_html,
+    render_context_with_translation,
     render_search_tab,
     render_source_badges,
 )
@@ -169,6 +170,8 @@ def _render_details(
     source: str = "local",
     archetype_by_key: dict | None = None,
     archetype_by_file: dict | None = None,
+    ctx=None,
+    prompts: dict | None = None,
 ) -> None:
     field_name = (doc.get("field") or "").strip()
     at_code = (doc.get("at_code") or "").strip()
@@ -188,14 +191,34 @@ def _render_details(
         if arch:
             full = arch.get("full_context") or ""
             focus = _field_block_span(full, at_code, field_name)
-            st.html(highlight_matches_html(full, matched, phrases, focus_span=focus))
+            if src.lower() == "ckm" and ctx is not None:
+                render_context_with_translation(
+                    full,
+                    matched,
+                    phrases,
+                    focus_span=focus,
+                    cache_key=f"field:{src}:{file_key}:{at_code}",
+                    ctx=ctx,
+                    prompts=prompts or {},
+                )
+            else:
+                st.html(
+                    highlight_matches_html(full, matched, phrases, focus_span=focus)
+                )
         else:
             st.caption("Архетип не найден в индексе — показано только поле.")
-            st.html(
-                highlight_matches_html(
-                    (doc.get("text") or "")[:8000], matched, phrases
+            text = (doc.get("text") or "")[:8000]
+            if src.lower() == "ckm" and ctx is not None:
+                render_context_with_translation(
+                    text,
+                    matched,
+                    phrases,
+                    cache_key=f"field-text:{src}:{file_key}:{at_code}",
+                    ctx=ctx,
+                    prompts=prompts or {},
                 )
-            )
+            else:
+                st.html(highlight_matches_html(text, matched, phrases))
 
 
 def _field_label(doc: dict) -> str:
@@ -249,8 +272,15 @@ def _make_field_spec(ctx: TabContext) -> SearchTabSpec:
         pick_all_label="Выбрать все поля",
         make_pick_key=lambda doc, idx: f"field_pick_{idx}_{doc.get('file', '')}_{doc.get('at_code', '')}",
         render_result_name=_render_name,
-        render_result_details=lambda doc, md, fn, source: _render_details(
-            doc, md, fn, source, archetype_by_key, archetype_by_file
+        render_result_details=lambda doc, md, fn, source, runtime_ctx, prompts: _render_details(
+            doc,
+            md,
+            fn,
+            source,
+            archetype_by_key,
+            archetype_by_file,
+            runtime_ctx,
+            prompts,
         ),
         result_label=_field_label,
         default_question_key="default_question_fields",

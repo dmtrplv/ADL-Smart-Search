@@ -6,6 +6,7 @@
 уточнений — вынесена сюда и переиспользуется через SearchTabSpec.
 """
 
+import hashlib
 import html
 import logging
 import os
@@ -29,6 +30,7 @@ from adl_smart_search.query_expand import (
     apply_manual_expansions,
     looks_latin,
     suggest_query_expansions,
+    translate_context_to_ru,
     translate_query_to_en_mixed,
 )
 from adl_smart_search.rag import (
@@ -353,6 +355,88 @@ def _mark_highlighted_segment(segment: str, pattern, phrases) -> str:
     return "".join(out)
 
 
+def _plain_context_html(text: str) -> str:
+    return (
+        '<div class="result-context" '
+        'style="white-space: pre-wrap; word-break: break-word;">'
+        f"{html.escape(text or '')}</div>"
+    )
+
+
+def render_context_with_translation(
+    text: str,
+    keywords,
+    phrases,
+    *,
+    focus_span=None,
+    cache_key: str,
+    ctx,
+    prompts: dict,
+) -> None:
+    """Показать CKM-контекст; при наличии LLM — кнопка перевода на русский.
+
+    Перевод не влияет на поиск и индекс: это только отображение. Результат
+    кэшируется в сессии по хэшу текста, поэтому rerender не вызывает LLM снова.
+    """
+    original = highlight_matches_html(
+        text, keywords, phrases, focus_span=focus_span
+    )
+    provider = getattr(ctx, "llm_aux_provider", None)
+    setup_msg = str(getattr(ctx, "llm_setup_msg", "") or "").strip()
+    system_prompt = str((prompts or {}).get("ui_translate") or "").strip()
+    user_template = str((prompts or {}).get("ui_translate_user") or "").strip()
+
+    if provider is None or setup_msg:
+        st.html(original)
+        st.caption("Перевод недоступен: LLM не настроен.")
+        return
+    if not system_prompt or not user_template:
+        st.html(original)
+        st.caption(
+            "Перевод не настроен: добавьте ui_translate и ui_translate_user "
+            "в config/prompts.json."
+        )
+        return
+
+    cache = st.session_state.setdefault("ui_translation_cache", {})
+    if not isinstance(cache, dict):
+        cache = {}
+        st.session_state["ui_translation_cache"] = cache
+    digest = hashlib.sha1((text or "").encode("utf-8")).hexdigest()
+    key = f"{cache_key}:{digest}"
+    translated = str(cache.get(key) or "")
+
+    if not translated:
+        if st.button("Перевести на русский", key=f"tr_btn_{key}"):
+            try:
+                with st.spinner("Перевод контекста..."):
+                    translated = translate_context_to_ru(
+                        text,
+                        provider,
+                        system=system_prompt,
+                        user_template=user_template,
+                    )
+                if translated:
+                    cache[key] = translated
+                else:
+                    st.warning("ИИ не вернул перевод — показан оригинал.")
+            except LLMError as e:
+                st.warning(e.user_message)
+            except Exception:
+                logger.exception("context translation failed")
+                st.warning("Не удалось перевести контекст — показан оригинал.")
+
+    if not translated:
+        st.html(original)
+        return
+
+    tab_tr, tab_orig = st.tabs(["Перевод", "Оригинал"])
+    with tab_tr:
+        st.html(_plain_context_html(translated))
+    with tab_orig:
+        st.html(original)
+
+
 def highlight_matches_html(text: str, keywords, phrases=None, focus_span=None) -> str:
     """Текст с переносами, подсветкой фраз/слов и необязательной рамкой.
 
@@ -415,8 +499,8 @@ class SearchTabSpec:
     make_pick_key: Callable[[dict, int], str]
     # (doc, match_debug, dev_mode, short_name, sources) — sources: ["local", "ckm"]
     render_result_name: Callable[[dict, dict, bool, str, list[str]], None]
-    # (doc, match_debug, short_name, source)
-    render_result_details: Callable[[dict, dict, str, str], None]
+    # (doc, match_debug, short_name, source, ctx, prompts)
+    render_result_details: Callable[[dict, dict, str, str, TabContext, dict], None]
     result_label: Callable[[dict], str]
 
     default_question_key: str
@@ -1346,6 +1430,8 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
                             match_debug.get(member_idx) or {},
                             _short_file_name(member_doc),
                             member_doc.get("source") or "local",
+                            ctx,
+                            parts,
                         )
 
             st.session_state[f"{prefix}_selected"] = selected_idx
