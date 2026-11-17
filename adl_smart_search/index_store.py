@@ -20,7 +20,7 @@ from .index_files import CKM_SOURCE, index_filenames
 INDEX_FORMAT_VERSION = 1
 # Версия разбора .adl. Увеличивайте, когда меняется compact_adl/anchor/field-разбор:
 # старые документы тогда переразбираются, а не переиспользуются инкрементально.
-PARSER_VERSION = 2
+PARSER_VERSION = 3
 
 # Опциональные ключи меты в docs_json (v1+). Их отсутствие = legacy индекс без проверки модели.
 META_EMBED_MODEL = "embed_model"

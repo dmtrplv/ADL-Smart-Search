@@ -213,6 +213,42 @@ class TestExtractDetailsMetadata:
         meta = extract_details_metadata("")
         assert all(v == "" for v in meta.values())
 
+    def test_other_details_before_description_details(self):
+        content = """\
+archetype (adl_version=1.4)
+\topenEHR-EHR-OBSERVATION.intravascular_pressure.v0
+
+language
+\toriginal_language = <[ISO_639-1::en]>
+\ttranslations = <
+\t\t["ar-sy"] = <
+\t\t\tother_details = <
+\t\t\t\t["notes"] = <"Generated automatically">
+\t\t\t>
+\t\t>
+\t>
+
+description
+\tdetails = <
+\t\t["ru"] = <
+\t\t\tpurpose = <"Для записи измерения давления.">
+\t\t\tkeywords = <"давление","внутрисосудистый">
+\t\t\tuse = <"Используется для записи давления.">
+\t\t\tmisuse = <"Не использовать для другого давления.">
+\t\t>
+\t>
+
+definition
+\tOBSERVATION[at0000] matches {
+\t}
+"""
+        meta = extract_details_metadata(content, preferred_lang="ru")
+
+        assert meta["purpose"].strip('"') == "Для записи измерения давления."
+        assert meta["use"].strip('"') == "Используется для записи давления."
+        assert "давление" in meta["keywords"]
+        assert "Не использовать" in meta["misuse"]
+
 
 # ──── compact_adl ─────────────────────────────────────────────────────────────
 

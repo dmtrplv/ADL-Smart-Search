@@ -129,10 +129,13 @@ def _definition_block_names(content: str) -> list[tuple[int, str]]:
 
 
 def _extract_details_block(content: str) -> str:
-    details_pos = content.find("details =")
-    if details_pos == -1:
+    # Именно описание details, а не other_details внутри language/translations.
+    # Поиск по подстроке "details =" ловил other_details и возвращал блок без
+    # purpose/use/keywords/misuse (например, intravascular_pressure.v0).
+    m = re.search(r"(?m)^[ \t]*details[ \t]*=", content)
+    if not m:
         return ""
-    return get_block_by_bracket(content, details_pos)
+    return get_block_by_bracket(content, m.start())
 
 
 def extract_details_metadata(content: str, preferred_lang: str = "ru") -> dict:
