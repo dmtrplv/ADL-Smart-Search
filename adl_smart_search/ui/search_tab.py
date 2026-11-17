@@ -68,6 +68,12 @@ logger = logging.getLogger(__name__)
 _SHOW_MORE_STEP = 5
 _SHOW_MORE_LIMIT = 50
 
+# Очень сильное лексическое совпадение (нормированный BM25) может пройти
+# с чуть меньшей семантической близостью. Это возвращает точные короткие
+# запросы («Рост» → height, «Вес» → body_weight), не открывая дорогу мусору.
+_STRONG_LEX_MIN = 0.9
+_STRONG_LEX_SIM_FLOOR = 0.22
+
 # Сколько вариантов расширения запроса показываем и берём из ответа ИИ.
 _EXPAND_TERMS_LIMIT = 5
 
@@ -1178,6 +1184,8 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
                 sim_floor_pure_by_idx=pure_floors,
                 extend_k=_SHOW_MORE_LIMIT,
                 rank_within_group=_rank_group,
+                strong_lex_min=_STRONG_LEX_MIN,
+                strong_lex_sim_floor=_STRONG_LEX_SIM_FLOOR,
             )
 
             if ctx.dev_mode:
@@ -1191,13 +1199,16 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
                 )
                 st.caption(
                     "Отбор: gap ≤ {0:.3f}, полоса {1:.3f}, порог схожести {2:.2f}/{3:.2f} "
-                    "(другой язык {4:.2f}, пометка ниже {5:.2f})".format(
+                    "(другой язык {4:.2f}, пометка ниже {5:.2f}; "
+                    "сильная лексика ≥{6:.2f} → {7:.2f})".format(
                         float(sel_info.get("gap_max") or 0.0),
                         float(sel_info.get("band") or 0.0),
                         float(sel_info.get("sim_floor") or 0.0),
                         float(sel_info.get("sim_floor_pure") or 0.0),
                         cross_floor,
                         float(ctx.sim_low_confidence),
+                        _STRONG_LEX_MIN,
+                        _STRONG_LEX_SIM_FLOOR,
                     )
                     + ((" | " + "; ".join(selection_parts)) if selection_parts else "")
                 )

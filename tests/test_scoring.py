@@ -212,6 +212,84 @@ def test_ckm_without_translation_has_no_phrase_bonus():
     assert np.isclose(scores[0], sims[0])
 
 
+def test_strong_lexical_match_can_pass_lower_similarity_floor():
+    scores = np.array([0.80, 0.70], dtype=np.float32)
+    sims = np.array([0.23, 0.40], dtype=np.float32)
+    lex = np.array([0.95, 0.0], dtype=np.float32)
+
+    picked_default, _ = select_indices_by_relevance(
+        scores,
+        sims,
+        lex,
+        strictness=0.6,
+        max_k=10,
+        min_k=1,
+        sources=["local", "local"],
+        sim_floor=0.30,
+        sim_floor_pure=0.55,
+    )
+    picked_relaxed, _ = select_indices_by_relevance(
+        scores,
+        sims,
+        lex,
+        strictness=0.6,
+        max_k=10,
+        min_k=1,
+        sources=["local", "local"],
+        sim_floor=0.30,
+        sim_floor_pure=0.55,
+        strong_lex_min=0.9,
+        strong_lex_sim_floor=0.22,
+    )
+
+    assert 0 not in picked_default
+    assert 0 in picked_relaxed
+
+
+def test_strong_lexical_relaxation_requires_very_strong_lex():
+    scores = np.array([0.80], dtype=np.float32)
+    sims = np.array([0.22], dtype=np.float32)
+    lex = np.array([0.50], dtype=np.float32)
+
+    picked, _ = select_indices_by_relevance(
+        scores,
+        sims,
+        lex,
+        strictness=0.6,
+        max_k=10,
+        min_k=1,
+        sources=["local"],
+        sim_floor=0.30,
+        sim_floor_pure=0.55,
+        strong_lex_min=0.9,
+        strong_lex_sim_floor=0.22,
+    )
+
+    assert picked == []
+
+
+def test_strong_lexical_relaxation_does_not_apply_to_pure_semantic():
+    scores = np.array([0.80], dtype=np.float32)
+    sims = np.array([0.22], dtype=np.float32)
+    lex = np.array([0.0], dtype=np.float32)
+
+    picked, _ = select_indices_by_relevance(
+        scores,
+        sims,
+        lex,
+        strictness=0.6,
+        max_k=10,
+        min_k=1,
+        sources=["local"],
+        sim_floor=0.30,
+        sim_floor_pure=0.55,
+        strong_lex_min=0.9,
+        strong_lex_sim_floor=0.22,
+    )
+
+    assert picked == []
+
+
 def test_lexical_bonus_scales_with_query_coverage():
     """Документ, совпавший только с частью запроса, получает меньший бонус."""
     docs = [

@@ -522,6 +522,8 @@ def select_indices_by_relevance(
     sim_floor_pure_by_idx=None,
     extend_k: int = 0,
     rank_within_group=None,
+    strong_lex_min: float = 0.0,
+    strong_lex_sim_floor: float = 0.0,
 ) -> tuple[list[int], dict]:
     """
     Отбор результатов по релевантности (per-source, затем слияние источников).
@@ -538,6 +540,11 @@ def select_indices_by_relevance(
       * ``sim_floor_pure_by_idx`` — необязательные персональные пороги для
         «чисто смысловых» документов (например, более низкий порог для
         кросс-языковых пар); по умолчанию используется ``sim_floor_pure``;
+      * ``strong_lex_min`` / ``strong_lex_sim_floor`` — необязательное
+        послабление для очень сильного лексического совпадения: если
+        ``lex >= strong_lex_min``, достаточно ``sim >= strong_lex_sim_floor``
+        (обычно ниже ``sim_floor``). Это спасает точные короткие запросы
+        («Рост» → height), не пуская в выдачу документы со слабой лексикой;
       * если набралось меньше ``min_k`` — добираем лучшими по score
         (тоже прошедшими порог).
 
@@ -616,12 +623,20 @@ def select_indices_by_relevance(
         if not np.isfinite(v):
             return True
         has_lex = False
+        lex_val = 0.0
         if lex is not None:
             try:
-                has_lex = float(lex[i]) > 0.0
+                lex_val = float(lex[i])
+                has_lex = lex_val > 0.0
             except Exception:
                 has_lex = False
         if has_lex:
+            if (
+                strong_lex_min > 0
+                and strong_lex_sim_floor > 0
+                and lex_val >= float(strong_lex_min)
+            ):
+                return v >= min(floor, float(strong_lex_sim_floor))
             return v >= floor
         pure = floor_pure
         if pure_floors is not None:
