@@ -1038,6 +1038,10 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
         st.session_state[f"{prefix}_query_saved"] = query
     short_token_hint(query, vocab=st.session_state.get(spec.vocab_key), dev_mode=ctx.dev_mode)
 
+    # Место под подпись перевода CKM: заполняется после поиска, но визуально
+    # стоит сразу под блоком расширения и над фильтром.
+    translation_slot = st.empty()
+
     saved_filter_key = f"{spec.filter_key}_saved"
     saved_filter = [
         x for x in (st.session_state.get(saved_filter_key) or []) if x in spec.filter_options
@@ -1250,6 +1254,22 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
 
         st.session_state["last_query"] = query
 
+    translation_note = st.session_state.get(f"{prefix}_translation_note") or ""
+    translation_q = (st.session_state.get(f"{prefix}_query_en_used") or "").strip()
+    if st.session_state.get(f"{prefix}_searched") and query.strip():
+        translation_msg = ""
+        if translation_note == "translated" and translation_q:
+            translation_msg = f"Перевод для CKM: «{translation_q}»"
+        elif translation_note == "not_needed" and translation_q:
+            translation_msg = f"CKM: «{translation_q}» (перевод не нужен)"
+        elif translation_note == "no_llm":
+            translation_msg = "CKM: перевод недоступен — поиск по смыслу"
+        elif translation_note == "failed":
+            translation_msg = "CKM: перевод не удался — поиск по смыслу"
+        if translation_msg:
+            with translation_slot.container():
+                st.caption(translation_msg)
+
     all_indices = st.session_state.get(f"{prefix}_top_indices") or []
     all_groups = st.session_state.get(f"{prefix}_result_groups") or []
     if not all_groups and all_indices:
@@ -1277,22 +1297,9 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
         # Результаты поиска занимают всю ширину: чат живёт в сайдбаре.
         if st.session_state.get(f"{prefix}_searched") and query.strip():
             used_q = (st.session_state.get(f"{prefix}_expanded_query") or "").strip()
-            q_used = (st.session_state.get(f"{prefix}_query_en_used") or "").strip()
-            note = st.session_state.get(f"{prefix}_translation_note") or ""
-            query_bits: list[str] = []
             if used_q and used_q != (query or "").strip():
                 label = "Локальная база" if "local" in selected_sources else "Запрос с расширениями"
-                query_bits.append(f"{label}: «{used_q}»")
-            if note == "translated" and q_used:
-                query_bits.append(f"Перевод для лексики CKM: «{q_used}»")
-            elif note == "not_needed" and q_used:
-                query_bits.append(f"CKM: «{q_used}» (перевод не нужен)")
-            elif note == "no_llm":
-                query_bits.append("CKM: перевод недоступен — поиск по смыслу")
-            elif note == "failed":
-                query_bits.append("CKM: перевод не удался — поиск по смыслу")
-            if query_bits:
-                st.caption(" · ".join(query_bits))
+                st.caption(f"{label}: «{used_q}»")
 
         if st.session_state.get(f"{prefix}_searched") and query.strip() and not all_indices:
             empty_kind = st.session_state.get(f"{prefix}_empty_kind") or ""
