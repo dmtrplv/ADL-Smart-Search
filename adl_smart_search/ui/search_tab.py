@@ -877,8 +877,19 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
             st.session_state[f"{prefix}_match_debug"] = {}
             st.session_state[f"{prefix}_scores"] = []
             st.session_state[f"{prefix}_zscore_by_idx"] = {}
+            # Не показываем подсказки/перевод от прошлого поиска: они относятся
+            # к другому набору документов и выглядят как «найдено, но не выдано».
+            st.session_state[f"{prefix}_suggestions"] = []
+            st.session_state[f"{prefix}_translation_note"] = ""
+            st.session_state[f"{prefix}_query_en_used"] = ""
+            st.session_state[f"{prefix}_query_en"] = ""
+            st.session_state[f"{prefix}_expanded_query"] = ""
+            st.session_state[f"{prefix}_empty_kind"] = (
+                "filtered" if (filter_selection or need_source_filter) else "no_docs"
+            )
             st.session_state[f"{prefix}_searched"] = True
         else:
+            st.session_state[f"{prefix}_empty_kind"] = ""
             expanded_query = None
             selected_expand_terms = list(st.session_state.get(f"{prefix}_expand_selected") or [])
             if selected_expand_terms:
@@ -1066,34 +1077,41 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
                 st.caption(" · ".join(query_bits))
 
         if st.session_state.get(f"{prefix}_searched") and query.strip() and not all_indices:
-            st.info(
-                "Ничего не найдено: нет релевантных результатов "
-                "(порог {0:.2f} с буквальным совпадением, {1:.2f} — только по смыслу, "
-                "{2:.2f} — только по смыслу для другого языка).".format(
-                    float(ctx.sim_floor),
-                    float(ctx.sim_floor_pure),
-                    _effective_cross_floor(ctx, spec),
+            empty_kind = st.session_state.get(f"{prefix}_empty_kind") or ""
+            if empty_kind == "filtered":
+                st.info(
+                    "В выбранном фильтре ничего не найдено. "
+                    "Измените фильтр или запрос и запустите поиск снова."
                 )
-            )
-            note = st.session_state.get(f"{prefix}_translation_note") or ""
-            if note == "no_llm":
-                st.warning(
-                    "CKM искался по смыслу: перевод запроса недоступен (LLM не настроен), "
-                    "буквальные совпадения для CKM отключены."
+            else:
+                st.info(
+                    "Ничего не найдено: нет релевантных результатов "
+                    "(порог {0:.2f} с буквальным совпадением, {1:.2f} — только по смыслу, "
+                    "{2:.2f} — только по смыслу для другого языка).".format(
+                        float(ctx.sim_floor),
+                        float(ctx.sim_floor_pure),
+                        _effective_cross_floor(ctx, spec),
+                    )
                 )
-            elif note == "failed":
-                st.warning(
-                    "Перевод запроса для CKM не удался — поиск идёт по смыслу, "
-                    "буквальные совпадения для CKM отключены."
-                )
-            suggestions = st.session_state.get(f"{prefix}_suggestions") or []
-            if suggestions:
-                st.caption("Ближайшие по смыслу (ниже порога):")
-                for s in suggestions:
-                    idx = int(s.get("index", -1))
-                    if idx < 0 or idx >= len(docs):
-                        continue
-                    st.caption(f"· {spec.result_label(docs[idx])} (схожесть {float(s.get('sim') or 0):.2f})")
+                note = st.session_state.get(f"{prefix}_translation_note") or ""
+                if note == "no_llm":
+                    st.warning(
+                        "CKM искался по смыслу: перевод запроса недоступен (LLM не настроен), "
+                        "буквальные совпадения для CKM отключены."
+                    )
+                elif note == "failed":
+                    st.warning(
+                        "Перевод запроса для CKM не удался — поиск идёт по смыслу, "
+                        "буквальные совпадения для CKM отключены."
+                    )
+                suggestions = st.session_state.get(f"{prefix}_suggestions") or []
+                if suggestions:
+                    st.caption("Ближайшие по смыслу (ниже порога):")
+                    for s in suggestions:
+                        idx = int(s.get("index", -1))
+                        if idx < 0 or idx >= len(docs):
+                            continue
+                        st.caption(f"· {spec.result_label(docs[idx])} (схожесть {float(s.get('sim') or 0):.2f})")
 
         selected_idx: list[int] = []
         try:

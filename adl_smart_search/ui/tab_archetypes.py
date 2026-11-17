@@ -29,7 +29,14 @@ ARCH_CONTEXT_VECTOR_TOP_K = 8
 
 
 def _archetype_class_from_file(fn: str) -> str:
-    m = re.match(r"(?i)openEHR-EHR-([A-Z_]+)\.", fn or "")
+    """Класс архетипа из пути: OBSERVATION, ACTION и т.д.
+
+    ``doc["file"]`` хранится как относительный путь внутри папки .adl
+    (``International/Observations/openEHR-EHR-OBSERVATION...``), поэтому
+    сравнивать нужно только имя файла, а не всю строку с начала.
+    """
+    name = os.path.basename(str(fn or "").replace("\\", "/"))
+    m = re.search(r"(?i)openEHR-EHR-([A-Z_]+)\.", name)
     return (m.group(1).upper() if m else "")
 
 
