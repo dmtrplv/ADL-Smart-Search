@@ -73,6 +73,7 @@ class SidebarState:
     ckm_adl_dir: str
     auto_strictness: float
     keyword_bonus: float
+    phrase_bonus: float
     misuse_penalty: float
     weak_match_penalty: float
     enable_misuse_penalty: bool
@@ -146,6 +147,7 @@ class SidebarState:
         cfg.index_dir = self.index_dir
         cfg.ckm_adl_dir = self.ckm_adl_dir
         cfg.keyword_bonus = self.keyword_bonus
+        cfg.phrase_bonus = self.phrase_bonus
         cfg.misuse_penalty = self.misuse_penalty
         cfg.weak_match_penalty = self.weak_match_penalty
         cfg.enable_misuse_penalty = self.enable_misuse_penalty
@@ -1033,6 +1035,7 @@ def _state_from_config(cfg: AppConfig, settings: dict) -> SidebarState:
         ckm_adl_dir=(settings.get("ckm_adl_dir") or cfg.ckm_adl_dir or ""),
         auto_strictness=float(settings.get("auto_strictness", cfg.auto_strictness) or cfg.auto_strictness),
         keyword_bonus=float(cfg.keyword_bonus),
+        phrase_bonus=float(cfg.phrase_bonus),
         misuse_penalty=float(cfg.misuse_penalty),
         weak_match_penalty=float(cfg.weak_match_penalty),
         enable_misuse_penalty=bool(cfg.enable_misuse_penalty),
@@ -1505,6 +1508,18 @@ def render_dev_settings(
                     ),
                     key="keyword_bonus",
                 )
+                phrase_bonus = st.slider(
+                    "Вес словосочетания",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=float(cfg.phrase_bonus),
+                    step=0.05,
+                    help=(
+                        "Бонус, если слова запроса стоят рядом как словосочетание "
+                        "(допускается одно вставное слово). 0 = не учитывать."
+                    ),
+                    key="phrase_bonus",
+                )
                 misuse_penalty = st.slider(
                     "Вес штрафа misuse",
                     min_value=0.0,
@@ -1822,6 +1837,7 @@ def render_dev_settings(
         ckm_adl_dir=(ckm_adl_dir or "").strip(),
         auto_strictness=float(auto_strictness),
         keyword_bonus=float(keyword_bonus),
+        phrase_bonus=float(phrase_bonus),
         misuse_penalty=float(misuse_penalty),
         weak_match_penalty=float(weak_match_penalty),
         enable_misuse_penalty=bool(enable_misuse_penalty),

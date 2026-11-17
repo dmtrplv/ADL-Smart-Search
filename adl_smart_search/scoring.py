@@ -62,6 +62,11 @@ _MISUSE_SIM_MIN = 0.3
 _PREFIX_MIN_LEN = 6
 _PREFIX_STEM_LEN = 6
 
+# Фразовый поиск: короткие осмысленные словосочетания из 2–4 значимых слов.
+# Внутри фразы допускаем не больше одного дополнительного слова.
+_PHRASE_MAX_WORDS = 4
+_PHRASE_GAP_WEIGHT = 0.8
+
 _CYRILLIC_RE = re.compile(r"[а-яА-ЯёЁ]")
 
 
@@ -229,10 +234,94 @@ def _compile_lexical_patterns(kws: list[str]) -> list[re.Pattern]:
     return pats
 
 
+def _phrase_tokens(text: str) -> list[str]:
+    return [t for t in re.findall(r"\w+", (text or "").lower()) if t]
+
+
+def _phrase_candidates(query: str) -> list[str]:
+    """Короткие фразы запроса: 2–4 значимых слова.
+
+    Служебные слова внутри фразы сохраняются, чтобы «боль в груди» искалась
+    как единое словосочетание, а не как набор отдельных терминов.
+    """
+    out: list[str] = []
+    for segment in re.split(r"[|;,]+", query or ""):
+        tokens = _phrase_tokens(segment)
+        if not tokens:
+            continue
+        significant = [
+            i
+            for i, token in enumerate(tokens)
+            if token not in _SHORT_STOPWORDS and len(token) >= 2
+        ]
+        if len(significant) < 2 or len(significant) > _PHRASE_MAX_WORDS:
+            continue
+        first, last = significant[0], significant[-1]
+        phrase = " ".join(tokens[first : last + 1])
+        if len(_phrase_tokens(phrase)) >= 2:
+            out.append(phrase)
+    return list(dict.fromkeys(out))
+
+
+def _phrase_token_pattern(token: str) -> str:
+    """Паттерн одного слова фразы с мягким учётом морфологии."""
+    if len(token) >= _PREFIX_MIN_LEN:
+        return re.escape(_stem_prefix(token)) + r"\w*"
+    if len(token) >= 4:
+        # «боль» → «бол*» (боли, болями), «груди» → «груд*» (грудью),
+        # но не «больница» (4 буквы после «бол»).
+        stem = token[:-1] if token.endswith("ь") else token[:4]
+        return re.escape(stem) + r"\w{0,3}"
+    return re.escape(token)
+
+
+def _compile_phrase_patterns(
+    phrases: list[str],
+) -> list[tuple[str, re.Pattern, re.Pattern]]:
+    """Возвращает (фраза, точный паттерн, паттерн с допуском 0–1 слова)."""
+    compiled: list[tuple[str, re.Pattern, re.Pattern]] = []
+    for phrase in phrases:
+        tokens = _phrase_tokens(phrase)
+        if len(tokens) < 2:
+            continue
+        token_pats = [_phrase_token_pattern(t) for t in tokens]
+        exact = r"\b" + r"\W+".join(token_pats) + r"\b"
+        variants = [exact]
+        for gap in range(len(tokens) - 1):
+            parts: list[str] = []
+            for i, token_pat in enumerate(token_pats):
+                parts.append(token_pat)
+                if i < len(tokens) - 1:
+                    parts.append(r"\W+\w+\W+" if i == gap else r"\W+")
+            variants.append(r"\b" + "".join(parts) + r"\b")
+        exact_re = re.compile(exact, flags=re.IGNORECASE)
+        any_re = re.compile("|".join(variants), flags=re.IGNORECASE)
+        compiled.append((phrase, exact_re, any_re))
+    # Длинные фразы важнее и должны выигрывать при пересечении.
+    compiled.sort(key=lambda item: -len(_phrase_tokens(item[0])))
+    return compiled
+
+
+def phrase_matches(text: str, phrases: list[str]) -> list[tuple[int, int]]:
+    """Непресекающиеся span-ы найденных фраз в тексте (для подсветки)."""
+    spans: list[tuple[int, int]] = []
+    for _phrase, _exact, any_re in _compile_phrase_patterns(phrases or []):
+        for match in any_re.finditer(text or ""):
+            start, end = match.span()
+            if start == end:
+                continue
+            if any(not (end <= a or start >= b) for a, b in spans):
+                continue
+            spans.append((start, end))
+    spans.sort()
+    return spans
+
+
 def _scan_lexical_stats(
     docs: List[dict],
     kws: list[str],
     patterns: list[re.Pattern],
+    phrase_patterns: list[tuple[str, re.Pattern, re.Pattern]] | None = None,
 ) -> dict:
     """Один проход по корпусу: df, tf, длины документов, зоны совпадений.
 
@@ -242,7 +331,9 @@ def _scan_lexical_stats(
       tf_short[i, k] — число совпадений k в имени файла/«якоре» (вне тела);
       tf_misuse[i, k] — число совпадений k в блоке «НЕДОПУСТИМОЕ ИСПОЛЬЗОВАНИЕ»;
       dl[i]        — длина документа в токенах;
-      in_file/in_anchor/in_searchable/in_misuse[i] — зоны совпадений.
+      in_file/in_anchor/in_searchable/in_misuse[i] — зоны совпадений;
+      phrase_score[i] — 1.0 для точной фразы, 0.8 для фразы с одним вставным словом;
+      in_phrases[i] — найденные фразы (для подсветки).
     """
     n = len(docs)
     n_kw = len(kws)
@@ -250,11 +341,13 @@ def _scan_lexical_stats(
     tf = np.zeros((n, n_kw), dtype=np.float32)
     tf_short = np.zeros((n, n_kw), dtype=np.float32)
     tf_misuse = np.zeros((n, n_kw), dtype=np.float32)
+    phrase_score = np.zeros(n, dtype=np.float32)
     dl = np.zeros(n, dtype=np.float32)
     in_file: list[list[str]] = [[] for _ in range(n)]
     in_anchor: list[list[str]] = [[] for _ in range(n)]
     in_searchable: list[list[str]] = [[] for _ in range(n)]
     in_misuse: list[list[str]] = [[] for _ in range(n)]
+    in_phrases: list[list[str]] = [[] for _ in range(n)]
 
     for i, doc in enumerate(docs):
         misuse_text = _misuse_text_for_doc(doc)
@@ -284,16 +377,26 @@ def _scan_lexical_stats(
                 tf_misuse[i, k] = c_mis
                 in_misuse[i].append(kws[k])
 
+        for phrase, exact_re, any_re in phrase_patterns or []:
+            if exact_re.search(hay):
+                phrase_score[i] = max(phrase_score[i], 1.0)
+                in_phrases[i].append(phrase)
+            elif any_re.search(hay):
+                phrase_score[i] = max(phrase_score[i], _PHRASE_GAP_WEIGHT)
+                in_phrases[i].append(phrase)
+
     return {
         "df": df,
         "tf": tf,
         "tf_short": tf_short,
         "tf_misuse": tf_misuse,
+        "phrase_score": phrase_score,
         "dl": dl,
         "in_file": in_file,
         "in_anchor": in_anchor,
         "in_searchable": in_searchable,
         "in_misuse": in_misuse,
+        "in_phrases": in_phrases,
     }
 
 
@@ -350,10 +453,14 @@ def compute_scores(
     enable_lexical: bool = True,
     similarities: np.ndarray | None = None,
     normalize_lexical: bool = True,
+    phrase_bonus: float = 0.0,
+    phrase_query: str | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict[int, dict]]:
     """Считает score/similarity/lex/демоушен для набора документов.
 
     ``keyword_bonus``       — вес лексической компоненты (0..1.5).
+    ``phrase_bonus``        — вес точного/почти точного словосочетания (0..1).
+    ``phrase_query``        — запрос для фразового поиска (по умолчанию ``query``).
     ``misuse_penalty``      — вес понижения за совпадение в блоке misuse (0..1).
     ``weak_match_penalty``  — вес понижения за совпадение только в имени/якоре (0..1).
     ``enable_lexical``      — False → считаем только семантику (без буквальных совпадений).
@@ -385,6 +492,7 @@ def compute_scores(
             raise ValueError("compute_scores: similarities size does not match docs")
 
     lex = np.zeros(n, dtype=np.float32)
+    phrase = np.zeros(n, dtype=np.float32)
     demotion = np.ones(n, dtype=np.float32)
     match_debug: Dict[int, dict] = {}
 
@@ -394,10 +502,16 @@ def compute_scores(
         kws = _extract_keywords_for_bonus(qx, token_vocab=token_vocab)
         patterns = _compile_lexical_patterns(kws)
 
-    if patterns:
-        stats = _scan_lexical_stats(docs, kws, patterns)
+    phrase_patterns: list[tuple[str, re.Pattern, re.Pattern]] = []
+    if enable_lexical and phrase_bonus > 0:
+        phrase_source = phrase_query if phrase_query is not None else query
+        phrase_patterns = _compile_phrase_patterns(_phrase_candidates(phrase_source))
+
+    if patterns or phrase_patterns:
+        stats = _scan_lexical_stats(docs, kws, patterns, phrase_patterns)
         lex_raw, _idf = _bm25_scores(stats, n)
         lex = _normalize_lexical(lex_raw) if normalize_lexical else lex_raw.astype(np.float32)
+        phrase = stats["phrase_score"]
 
         # Штрафуем только документы, где запрос зацепился ИСКЛЮЧИТЕЛЬНО за misuse.
         # Если те же слова есть в имени/якоре/теле, документ реально про этот
@@ -418,7 +532,7 @@ def compute_scores(
 
         for i, doc in enumerate(docs):
             matched = sorted({*stats["in_file"][i], *stats["in_anchor"][i], *stats["in_searchable"][i]})
-            if not matched and not mis_any[i] and not weak_any[i]:
+            if not matched and not mis_any[i] and not weak_any[i] and not phrase[i]:
                 continue
             match_debug[i] = {
                 "in_file": list(stats["in_file"][i]),
@@ -426,6 +540,8 @@ def compute_scores(
                 "in_searchable": list(stats["in_searchable"][i]),
                 "in_misuse": list(stats["in_misuse"][i]),
                 "matched_unique": matched,
+                "matched_phrases": list(stats["in_phrases"][i]),
+                "phrase": float(phrase[i]),
                 "matched_frac": float(matched and len(matched) / max(1, len(kws)) or 0.0),
                 "lexical": float(lex[i]),
                 "demotion": float(demotion[i]),
@@ -434,7 +550,9 @@ def compute_scores(
                 "lexical_enabled": True,
             }
 
-    scores = (similarities + float(keyword_bonus) * lex) * demotion
+    scores = (
+        similarities + float(keyword_bonus) * lex + float(phrase_bonus) * phrase
+    ) * demotion
     return scores, similarities, lex, demotion, match_debug
 
 
@@ -452,6 +570,7 @@ def compute_scores_multilingual(
     token_vocab: set[str] | None = None,
     expanded_query: str | None = None,
     local_sources: tuple[str, ...] = ("local",),
+    phrase_bonus: float = 0.0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict[int, dict]]:
     """Мультиязычная версия compute_scores для мульти-источников.
 
@@ -520,20 +639,35 @@ def compute_scores_multilingual(
             enable_lexical=lexical_ok,
             similarities=sims_grp,
             normalize_lexical=False,
+            # Словосочетания ищем только в локальном языке: в CKM/кросс-языке
+            # перевод ломает границы фразы, поэтому фразовый бонус там выключен.
+            phrase_bonus=phrase_bonus if group_name == "local" else 0.0,
+            phrase_query=query,
         )
-        groups.append((grp, group_name, lexical_ok, g_simi, g_lex_raw, g_dem, g_debug))
+        g_phrase = np.array(
+            [
+                float((g_debug.get(j) or {}).get("phrase", 0.0))
+                for j in range(len(grp_docs))
+            ],
+            dtype=np.float32,
+        )
+        groups.append(
+            (grp, group_name, lexical_ok, g_simi, g_lex_raw, g_phrase, g_dem, g_debug)
+        )
 
     global_lex_max = 0.0
-    for _grp, _name, _lex_ok, _simi, g_lex_raw, _dem, _debug in groups:
+    for _grp, _name, _lex_ok, _simi, g_lex_raw, _g_phrase, _dem, _debug in groups:
         if g_lex_raw.size:
             global_lex_max = max(global_lex_max, float(np.max(g_lex_raw)))
 
-    for grp, group_name, lexical_ok, g_simi, g_lex_raw, g_dem, g_debug in groups:
+    for grp, group_name, lexical_ok, g_simi, g_lex_raw, g_phrase, g_dem, g_debug in groups:
         if global_lex_max > 0:
             g_lex = (g_lex_raw / global_lex_max).astype(np.float32)
         else:
             g_lex = np.zeros_like(g_lex_raw, dtype=np.float32)
-        g_scores = (g_simi + float(keyword_bonus) * g_lex) * g_dem
+        g_scores = (
+            g_simi + float(keyword_bonus) * g_lex + float(phrase_bonus) * g_phrase
+        ) * g_dem
         for j, i in enumerate(grp):
             scores[i] = g_scores[j]
             similarities[i] = g_simi[j]

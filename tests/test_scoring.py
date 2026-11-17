@@ -112,6 +112,64 @@ def test_short_stopword_is_ignored_even_if_in_vocab():
     assert float(bonus[0]) > 0.0
 
 
+def test_phrase_bonus_prefers_contiguous_words():
+    docs = [
+        _doc("phrase.adl", "боль в груди при дыхании"),
+        _doc("split.adl", "боль описана отдельно. Грудная клетка без изменений."),
+    ]
+    vectors = np.zeros((2, 8), dtype=np.float32)
+    vectors[:, 0] = 1.0
+
+    scores, _sims, _bonus, _penalty, md = compute_scores(
+        query="боль в груди",
+        docs=docs,
+        vectors=vectors,
+        embedder=_MockEmbedder(),
+        keyword_bonus=0.0,
+        phrase_bonus=0.5,
+    )
+
+    assert scores[0] > scores[1]
+    assert md[0]["phrase"] == 1.0
+    assert "боль в груди" in md[0]["matched_phrases"]
+    assert md.get(1, {}).get("phrase", 0.0) == 0.0
+
+
+def test_phrase_bonus_allows_one_gap_word():
+    docs = [_doc("gap.adl", "боль сильная в груди")]
+    vectors = np.zeros((1, 8), dtype=np.float32)
+    vectors[0, 0] = 1.0
+
+    _scores, _sims, _bonus, _penalty, md = compute_scores(
+        query="боль в груди",
+        docs=docs,
+        vectors=vectors,
+        embedder=_MockEmbedder(),
+        keyword_bonus=0.0,
+        phrase_bonus=0.5,
+    )
+
+    assert np.isclose(md[0]["phrase"], 0.8)
+    assert md[0]["matched_phrases"] == ["боль в груди"]
+
+
+def test_phrase_matches_inflected_words():
+    docs = [_doc("morph.adl", "боли в груди")]
+    vectors = np.zeros((1, 8), dtype=np.float32)
+    vectors[0, 0] = 1.0
+
+    _scores, _sims, _bonus, _penalty, md = compute_scores(
+        query="боль в груди",
+        docs=docs,
+        vectors=vectors,
+        embedder=_MockEmbedder(),
+        keyword_bonus=0.0,
+        phrase_bonus=0.5,
+    )
+
+    assert md[0]["phrase"] == 1.0
+
+
 def test_lexical_bonus_scales_with_query_coverage():
     """Документ, совпавший только с частью запроса, получает меньший бонус."""
     docs = [

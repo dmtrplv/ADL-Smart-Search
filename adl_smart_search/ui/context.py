@@ -27,6 +27,7 @@ class TabContext:
     llm_setup_msg: str
     auto_strictness: float
     keyword_bonus: float
+    phrase_bonus: float
     misuse_penalty: float
     weak_match_penalty: float
     enable_misuse_penalty: bool

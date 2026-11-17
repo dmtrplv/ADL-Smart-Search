@@ -78,6 +78,13 @@ def test_context_budget_settings_have_defaults_and_types():
     assert SEARCH_SETTINGS_TYPES["context_tokens_fields"] is int
 
 
+def test_phrase_bonus_has_default_and_type():
+    cfg = AppConfig(adl_dir=".")
+
+    assert cfg.phrase_bonus == 0.15
+    assert SEARCH_SETTINGS_TYPES["phrase_bonus"] is float
+
+
 def test_llm_settings_roundtrip(tmp_path):
     index_dir = str(tmp_path / "data")
     payload = {

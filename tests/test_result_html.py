@@ -10,3 +10,15 @@ def test_highlight_uses_block_with_preserved_newlines():
     assert "white-space: pre-wrap" in out
     assert "\n  - " in out
     assert '<span class="match-hl">Поле</span>' in out
+
+
+def test_highlight_phrase_is_one_span_and_other_words_are_lighter():
+    out = highlight_matches_html(
+        "боль в груди. Отдельно: боль и груди.",
+        ["боль", "груди"],
+        ["боль в груди"],
+    )
+
+    assert '<span class="match-hl-phrase">боль в груди</span>' in out
+    # Слова вне фразы всё равно подсвечиваются, но другим классом.
+    assert out.count('class="match-hl"') >= 2

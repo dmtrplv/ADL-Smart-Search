@@ -44,6 +44,7 @@ def _render_details(doc: dict, md: dict, fn: str) -> None:
             highlight_matches_html(
                 doc.get("full_context", "")[:12000],
                 (md or {}).get("matched_unique") or [],
+                (md or {}).get("matched_phrases") or [],
             )
         )
 

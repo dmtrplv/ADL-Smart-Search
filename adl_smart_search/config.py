@@ -49,6 +49,7 @@ class AppConfig:
     # Search
     top_k: int = 5
     keyword_bonus: float = 0.5  # вес лексической (BM25-подобной) компоненты, 0..1.5
+    phrase_bonus: float = 0.15  # бонус за точное/почти точное словосочетание, 0..1
     misuse_penalty: float = 0.5  # вес понижения за совпадение в блоке misuse, 0..1
     weak_match_penalty: float = 0.25  # вес понижения за совпадение только в имени/якоре, 0..1
     enable_misuse_penalty: bool = True
@@ -163,6 +164,7 @@ def from_env(default_adl_dir: str) -> AppConfig:
         embed_model_name=os.getenv("ADL_EMBED_MODEL", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"),
         top_k=int(os.getenv("ADL_TOP_K", "5")),
         keyword_bonus=float(os.getenv("ADL_KEYWORD_BONUS", "0.5")),
+        phrase_bonus=float(os.getenv("ADL_PHRASE_BONUS", "0.15")),
         misuse_penalty=float(os.getenv("ADL_MISUSE_PENALTY", "0.5")),
         weak_match_penalty=float(os.getenv("ADL_WEAK_MATCH_PENALTY", "0.25")),
         enable_misuse_penalty=_env_bool("ADL_MISUSE_PENALTY_ENABLED", "1"),

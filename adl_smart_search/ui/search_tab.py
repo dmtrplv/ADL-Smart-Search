@@ -39,6 +39,7 @@ from adl_smart_search.rag import (
     pure_floor_by_doc_lang,
     reorder_picked_with_simi_preference,
 )
+from adl_smart_search.scoring import phrase_matches
 from adl_smart_search.ui.context import TabContext, prompts_from_session
 from adl_smart_search.ui.dialog import (
     append_chat_message,
@@ -284,10 +285,17 @@ section[data-testid="stSidebar"] [class*="chat_composer"] textarea {
   border-color: rgba(230, 126, 34, 0.60);
 }
 .match-hl {
-  background: rgba(255, 196, 0, 0.35);
+  background: rgba(255, 196, 0, 0.22);
   color: inherit;
   border-radius: 2px;
   padding: 0 1px;
+}
+.match-hl-phrase {
+  background: rgba(255, 196, 0, 0.55);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 2px;
+  box-shadow: inset 0 -1px 0 rgba(160, 110, 0, 0.55);
 }
 .result-context {
   white-space: pre-wrap;
@@ -300,8 +308,19 @@ section[data-testid="stSidebar"] [class*="chat_composer"] textarea {
 """
 
 
-def highlight_matches_html(text: str, keywords) -> str:
-    """Текст в блоке с сохранением переносов и подсветкой совпавших слов."""
+def _word_highlight_pattern(keywords):
+    kws = [str(k).strip().lower() for k in (keywords or []) if str(k).strip()]
+    if not kws:
+        return None
+    parts = []
+    for kw in dict.fromkeys(kws):
+        stem = _stem_prefix(kw)
+        parts.append(re.escape(stem) + (r"\w*" if stem != kw else r"\b"))
+    return re.compile(r"\b(?:" + "|".join(parts) + r")", flags=re.IGNORECASE)
+
+
+def highlight_matches_html(text: str, keywords, phrases=None) -> str:
+    """Текст с сохранением переносов, подсветкой фраз и отдельных слов."""
     # Именно <div>, а не <pre>: Streamlit превращает <pre> в свой stMarkdownPre
     # с white-space: normal, и переносы строк схлопываются в сплошной текст.
     open_tag = (
@@ -309,16 +328,27 @@ def highlight_matches_html(text: str, keywords) -> str:
         'style="white-space: pre-wrap; word-break: break-word;">'
     )
     body = html.escape(text or "")
-    kws = [str(k).strip().lower() for k in (keywords or []) if str(k).strip()]
-    if not kws:
-        return f"{open_tag}{body}</div>"
-    parts = []
-    for kw in dict.fromkeys(kws):
-        stem = _stem_prefix(kw)
-        parts.append(re.escape(stem) + (r"\w*" if stem != kw else r"\b"))
-    pattern = re.compile(r"\b(?:" + "|".join(parts) + r")", flags=re.IGNORECASE)
-    marked = pattern.sub(lambda m: f'<span class="match-hl">{m.group(0)}</span>', body)
-    return f"{open_tag}{marked}</div>"
+    pattern = _word_highlight_pattern(keywords)
+    spans = phrase_matches(body, list(phrases or []))
+
+    def mark_words(segment: str) -> str:
+        if pattern is None or not segment:
+            return segment
+        return pattern.sub(
+            lambda m: f'<span class="match-hl">{m.group(0)}</span>', segment
+        )
+
+    if not spans:
+        return f"{open_tag}{mark_words(body)}</div>"
+
+    out: list[str] = []
+    pos = 0
+    for start, end in spans:
+        out.append(mark_words(body[pos:start]))
+        out.append(f'<span class="match-hl-phrase">{body[start:end]}</span>')
+        pos = end
+    out.append(mark_words(body[pos:]))
+    return f"{open_tag}{''.join(out)}</div>"
 
 
 @dataclass(frozen=True)
@@ -437,12 +467,20 @@ def _dev_penalty_reason(md: dict) -> str:
 
 
 def _dev_score_line(
-    score_s, sim_s, bonus_s, penalty_s, md: dict, keyword_bonus: float, zscore: float | None = None
+    score_s,
+    sim_s,
+    bonus_s,
+    penalty_s,
+    md: dict,
+    keyword_bonus: float,
+    zscore: float | None = None,
+    phrase_bonus: float = 0.0,
 ) -> str:
     """Расшифровка score: из чего он сложился, и z-оценка внутри источника."""
     score = float(score_s) if score_s is not None else 0.0
     sim = float(sim_s) if sim_s is not None else 0.0
     bonus = float(bonus_s) if bonus_s is not None else 0.0
+    phrase = float(md.get("phrase") or 0.0)
     penalty = float(penalty_s) if penalty_s is not None else 1.0
     reason = _dev_penalty_reason(md)
 
@@ -453,6 +491,8 @@ def _dev_score_line(
         base += " · лексика отключена (другой язык)"
     else:
         base = f"схожесть {sim:.2f} + {float(keyword_bonus):.2f} × лексика {bonus:.2f}"
+        if phrase > 0:
+            base += f" + {float(phrase_bonus):.2f} × фраза {phrase:.2f}"
         if penalty < 0.999:
             base = f"({base}) × штраф {penalty:.2f} ({reason})"
 
@@ -486,11 +526,16 @@ def render_dev_result_info(
     penalty,
     md: dict,
     keyword_bonus: float,
+    phrase_bonus: float = 0.0,
     zscore: float | None = None,
     low_confidence: bool = False,
 ) -> None:
     """Компактная dev-сводка: как получился score, где совпали слова, предупреждение."""
-    st.caption(_dev_score_line(score, sim, bonus, penalty, md, keyword_bonus, zscore))
+    st.caption(
+        _dev_score_line(
+            score, sim, bonus, penalty, md, keyword_bonus, zscore, phrase_bonus
+        )
+    )
     matches = _dev_matches_line(md)
     if matches:
         st.caption("Совпало: " + matches)
@@ -500,11 +545,13 @@ def render_dev_result_info(
         st.caption("Возможно, нерелевантно.")
 
 
-def dev_legend(keyword_bonus: float) -> str:
+def dev_legend(keyword_bonus: float, phrase_bonus: float = 0.0) -> str:
     """Одна строка-легенда для dev-режима."""
     return (
-        f"dev: score = (схожесть + {float(keyword_bonus):.2f} × лексика) × штраф. "
+        f"dev: score = (схожесть + {float(keyword_bonus):.2f} × лексика"
+        f" + {float(phrase_bonus):.2f} × словосочетание) × штраф. "
         "Схожесть — смысловая близость, лексика — совпадения слов, "
+        "словосочетание — найденная фраза, "
         "штраф — множитель за misuse или слабое совпадение. "
         "Результаты источников сортируются по score; z показан справочно "
         "и на порядок не влияет."
@@ -879,6 +926,7 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
                     enable_weak_match_penalty=ctx.enable_weak_match_penalty,
                     token_vocab=st.session_state.get(spec.vocab_key),
                     expanded_query=expanded_query,
+                    phrase_bonus=ctx.phrase_bonus,
                 )
 
             adjusted_scores: dict[int, float] = {}
@@ -1061,7 +1109,7 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
                 st.write(f"{spec.result_count_label} {len(top_indices)}")
 
             if ctx.dev_mode:
-                st.caption(dev_legend(ctx.keyword_bonus))
+                st.caption(dev_legend(ctx.keyword_bonus, ctx.phrase_bonus))
 
             low_conf = float(ctx.sim_low_confidence)
             weak_set = {
@@ -1139,6 +1187,7 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
                             penalty=penalty_s,
                             md=md,
                             keyword_bonus=ctx.keyword_bonus,
+                            phrase_bonus=ctx.phrase_bonus,
                             zscore=z_s,
                             low_confidence=idx in weak_set,
                         )

@@ -23,6 +23,7 @@ LLM_SECRET_KEYS = {"api_key", "openai_api_key", "gigachat_credentials"}
 SEARCH_SETTINGS_TYPES: dict[str, type] = {
     "auto_strictness": float,
     "keyword_bonus": float,
+    "phrase_bonus": float,
     "misuse_penalty": float,
     "weak_match_penalty": float,
     "enable_misuse_penalty": bool,

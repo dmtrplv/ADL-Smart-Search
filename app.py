@@ -497,6 +497,7 @@ def main():
         llm_setup_msg=llm_setup_msg,
         auto_strictness=float(state.auto_strictness),
         keyword_bonus=float(state.keyword_bonus),
+        phrase_bonus=float(state.phrase_bonus),
         misuse_penalty=float(state.misuse_penalty),
         weak_match_penalty=float(state.weak_match_penalty),
         enable_misuse_penalty=bool(state.enable_misuse_penalty),
