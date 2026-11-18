@@ -11,6 +11,7 @@ import html
 import logging
 import os
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -41,7 +42,7 @@ from adl_smart_search.rag import (
     pure_floor_by_doc_lang,
     reorder_picked_with_simi_preference,
 )
-from adl_smart_search.scoring import phrase_matches
+from adl_smart_search.scoring import _SHORT_STOPWORDS, phrase_matches
 from adl_smart_search.ui.context import TabContext, prompts_from_session
 from adl_smart_search.ui.dialog import (
     append_chat_message,
@@ -840,6 +841,42 @@ def _clear_expand_term_widgets(prefix: str, terms) -> None:
         st.session_state.pop(f"{prefix}_expand_term_{term}", None)
 
 
+def _expand_base_vocab() -> set[str]:
+    """Словарь токенов обоих индексов: архетипы + поля."""
+    vocab: set[str] = set()
+    for key in ("arch_token_vocab", "field_token_vocab"):
+        value = st.session_state.get(key)
+        if isinstance(value, set):
+            vocab.update(value)
+    return vocab
+
+
+def _expand_term_in_base(term: str, vocab: set[str]) -> bool:
+    """Есть ли все значимые слова термина в словаре базы."""
+    normalized = unicodedata.normalize("NFKC", str(term or ""))
+    tokens = [
+        t
+        for t in re.findall(r"\w+", normalized.lower())
+        if len(t) >= 2 and t not in _SHORT_STOPWORDS
+    ]
+    if not tokens:
+        return False
+    for token in tokens:
+        if len(token) >= 6:
+            prefix = _stem_prefix(token)
+            if not any(v.startswith(prefix) for v in vocab):
+                return False
+        elif token not in vocab:
+            return False
+    return True
+
+
+def _filter_expand_terms_in_base(terms, vocab: set[str]) -> list[str]:
+    if not vocab:
+        return list(terms or [])
+    return [t for t in (terms or []) if _expand_term_in_base(t, vocab)]
+
+
 def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> None:
     prefix = spec.prefix
     st.caption(spec.top_caption)
@@ -853,6 +890,7 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
     st.session_state.setdefault(f"{prefix}_expand_last_msg", "")
     st.session_state.setdefault(f"{prefix}_expand_last_kind", "")
     st.session_state.setdefault(f"{prefix}_expand_results", False)
+    st.session_state.setdefault(f"{prefix}_expand_open", False)
     st.session_state.setdefault(f"{prefix}_query_en", "")
     # Текст запроса храним отдельно: состояние виджета в форме очищается,
     # когда вкладка не рендерится (переключение на «Поля» и обратно).
@@ -924,7 +962,10 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
 
         with st.expander(
             "Расширение запроса (ИИ)",
-            expanded=bool(st.session_state.get(f"{prefix}_expand_results", False)),
+            expanded=bool(
+                st.session_state.get(f"{prefix}_expand_open", False)
+                or st.session_state.get(f"{prefix}_expand_results", False)
+            ),
         ):
             st.caption(
                 "По кнопке ИИ предложит синонимы/переформулировки исходного запроса. "
@@ -942,10 +983,13 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
                 st.session_state[f"{prefix}_expand_last_msg"] = ""
                 st.session_state[f"{prefix}_expand_results"] = False
 
+            terms = _filter_expand_terms_in_base(terms, _expand_base_vocab())
+
             # По умолчанию ничего не отмечено: пользователь выбирает варианты сам.
             st.session_state.setdefault(f"{prefix}_expand_selected", [])
 
             if find_expand:
+                st.session_state[f"{prefix}_expand_open"] = True
                 st.session_state[f"{prefix}_expand_results"] = False
                 _clear_expand_term_widgets(prefix, terms)
                 if not (query or "").strip():
@@ -966,19 +1010,28 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
                     )
                 else:
                     try:
-                        terms_new = suggest_query_expansions(
+                        raw_terms = suggest_query_expansions(
                             query,
                             ctx.llm_aux_provider,
                             system=parts["query_expand"],
                             user_template=parts["query_expand_user"],
                             max_terms=_EXPAND_TERMS_LIMIT,
                         )
+                        terms_new = _filter_expand_terms_in_base(
+                            list(raw_terms), _expand_base_vocab()
+                        )
                         st.session_state[f"{prefix}_expand_terms"] = terms_new
                         st.session_state[f"{prefix}_expand_query"] = query or ""
-                        if not terms_new:
+                        if not raw_terms:
                             st.session_state[f"{prefix}_expand_selected"] = []
                             st.session_state[f"{prefix}_expand_last_kind"] = "info"
                             st.session_state[f"{prefix}_expand_last_msg"] = "ИИ не предложил терминов."
+                        elif not terms_new:
+                            st.session_state[f"{prefix}_expand_selected"] = []
+                            st.session_state[f"{prefix}_expand_last_kind"] = "info"
+                            st.session_state[f"{prefix}_expand_last_msg"] = (
+                                "Подходящих в базе вариантов не найдено."
+                            )
                         else:
                             st.session_state[f"{prefix}_expand_selected"] = []
                             st.session_state[f"{prefix}_expand_last_kind"] = "success"
@@ -999,6 +1052,11 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
                         st.session_state[f"{prefix}_expand_last_msg"] = f"Ошибка расширения: {e}"
                         logger.exception("query expansion failed: %s", e)
                         terms = []
+
+                # Перерисовать сразу с открытым expander: иначе он может
+                # остаться в старом (свёрнутом) состоянии до следующего клика.
+                st.session_state[f"{prefix}_query_saved"] = query or ""
+                st.rerun()
 
             last_kind = st.session_state.get(f"{prefix}_expand_last_kind") or ""
             last_msg = (st.session_state.get(f"{prefix}_expand_last_msg") or "").strip()

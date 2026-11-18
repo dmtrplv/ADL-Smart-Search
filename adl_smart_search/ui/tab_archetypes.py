@@ -38,7 +38,7 @@ def _archetype_class_from_file(fn: str) -> str:
     """
     name = os.path.basename(str(fn or "").replace("\\", "/"))
     m = re.search(r"(?i)openEHR-EHR-([A-Z_]+)\.", name)
-    return (m.group(1).upper() if m else "")
+    return m.group(1).upper() if m else ""
 
 
 def _archetype_version_key(doc: dict) -> str:
@@ -108,7 +108,7 @@ def _archetype_label(doc: dict) -> str:
 ARCH_SPEC = SearchTabSpec(
     prefix="arch",
     top_caption="Поиск архетипов",
-    query_help="Одно или несколько слов",
+    query_help="Одно или несколько слов. Чем конкретнее запрос, тем релевантнее результаты",
     filter_label="Фильтр: класс архетипа",
     filter_help="Можно выбрать несколько",
     filter_options=[
@@ -122,7 +122,8 @@ ARCH_SPEC = SearchTabSpec(
         "ADMIN_ENTRY",
     ],
     filter_key="arch_class_filter",
-    filter_matches=lambda selected, doc: _archetype_class_from_file(doc.get("file", "")) in set(selected),
+    filter_matches=lambda selected, doc: _archetype_class_from_file(doc.get("file", ""))
+    in set(selected),
     vocab_key="arch_token_vocab",
     min_k=3,
     result_count_label="Показано найденных архетипов:",
