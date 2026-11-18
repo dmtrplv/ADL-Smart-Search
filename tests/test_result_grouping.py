@@ -2,6 +2,7 @@ from adl_smart_search.ui.search_tab import _group_result_indices
 from adl_smart_search.ui.tab_archetypes import (
     ARCH_SPEC,
     _archetype_version_key,
+    _details_title,
 )
 
 
@@ -57,3 +58,15 @@ def test_group_takes_position_of_best_member():
 
 def test_arch_spec_uses_version_aware_grouping():
     assert ARCH_SPEC.group_key is _archetype_version_key
+
+
+def test_single_archetype_details_title_has_no_source():
+    assert _details_title("local", 1) == "Метаданные и структура архетипа"
+    assert _details_title("ckm", 1) == "Метаданные и структура архетипа"
+
+
+def test_grouped_archetype_details_title_has_source():
+    assert _details_title("local", 2) == (
+        "Метаданные и структура архетипа из локальной базы"
+    )
+    assert _details_title("ckm", 2) == "Метаданные и структура архетипа из CKM"

@@ -65,6 +65,17 @@ def _render_name(
     st.code(fn, language=None)
 
 
+def _details_title(source: str, group_size: int = 1) -> str:
+    if group_size <= 1:
+        return "Метаданные и структура архетипа"
+    src = str(source or "local").strip().lower()
+    if src == "ckm":
+        return "Метаданные и структура архетипа из CKM"
+    if src == "local":
+        return "Метаданные и структура архетипа из локальной базы"
+    return f"Метаданные и структура архетипа ({source})"
+
+
 def _render_details(
     doc: dict,
     md: dict,
@@ -72,14 +83,10 @@ def _render_details(
     source: str = "local",
     ctx=None,
     prompts: dict | None = None,
+    group_size: int = 1,
 ) -> None:
     src = str(source or "local").strip().lower()
-    if src == "ckm":
-        title = "Метаданные и структура архетипа из CKM"
-    elif src == "local":
-        title = "Метаданные и структура архетипа из локальной базы"
-    else:
-        title = f"Метаданные и структура архетипа ({source})"
+    title = _details_title(src, group_size)
     with st.expander(title, expanded=False):
         text = doc.get("full_context", "")[:12000]
         matched = (md or {}).get("matched_unique") or []

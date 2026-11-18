@@ -520,8 +520,8 @@ class SearchTabSpec:
     make_pick_key: Callable[[dict, int], str]
     # (doc, match_debug, dev_mode, short_name, sources) — sources: ["local", "ckm"]
     render_result_name: Callable[[dict, dict, bool, str, list[str]], None]
-    # (doc, match_debug, short_name, source, ctx, prompts)
-    render_result_details: Callable[[dict, dict, str, str, TabContext, dict], None]
+    # (doc, match_debug, short_name, source, ctx, prompts, group_size)
+    render_result_details: Callable[[dict, dict, str, str, TabContext, dict, int], None]
     result_label: Callable[[dict], str]
 
     default_question_key: str
@@ -925,6 +925,11 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
         with q2:
             run_search = st.form_submit_button("Искать", use_container_width=True)
 
+        # Подписи расширенного запроса и перевода CKM заполняются после поиска,
+        # но визуально стоят сразу под полем запроса.
+        expanded_query_slot = st.empty()
+        translation_slot = st.empty()
+
         if show_source_picker:
             modes = [s.name for s in enabled_sources] + ["__all__"]
             radio_key = f"{prefix}_source_mode"
@@ -1083,11 +1088,6 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
                     if checked:
                         selected_now.append(term)
                 st.session_state[f"{prefix}_expand_selected"] = selected_now
-                if selected_now:
-                    st.caption(
-                        "Расширенный запрос: "
-                        + apply_manual_expansions(query, selected_now)
-                    )
 
     # Уникальный маркер заставляет iframe перезагрузиться при смене вкладки/рендере:
     # иначе JS-обёртка даты не видит новые подписи на вкладке «Поля».
@@ -1101,10 +1101,6 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
     if run_search or find_expand:
         st.session_state[f"{prefix}_query_saved"] = query
     short_token_hint(query, vocab=st.session_state.get(spec.vocab_key), dev_mode=ctx.dev_mode)
-
-    # Место под подпись перевода CKM: заполняется после поиска, но визуально
-    # стоит сразу под блоком расширения и над фильтром.
-    translation_slot = st.empty()
 
     saved_filter_key = f"{spec.filter_key}_saved"
     saved_filter = [
@@ -1326,6 +1322,11 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
     translation_note = st.session_state.get(f"{prefix}_translation_note") or ""
     translation_q = (st.session_state.get(f"{prefix}_query_en_used") or "").strip()
     if st.session_state.get(f"{prefix}_searched") and query.strip():
+        used_q = (st.session_state.get(f"{prefix}_expanded_query") or "").strip()
+        if used_q and used_q != (query or "").strip():
+            with expanded_query_slot.container():
+                st.caption(f"Расширенный запрос: «{used_q}»")
+
         translation_msg = ""
         if translation_note == "translated" and translation_q:
             translation_msg = f"Перевод для CKM: «{translation_q}»"
@@ -1364,12 +1365,6 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
 
     with st.container():
         # Результаты поиска занимают всю ширину: чат живёт в сайдбаре.
-        if st.session_state.get(f"{prefix}_searched") and query.strip():
-            used_q = (st.session_state.get(f"{prefix}_expanded_query") or "").strip()
-            if used_q and used_q != (query or "").strip():
-                label = "Локальная база" if "local" in selected_sources else "Запрос с расширениями"
-                st.caption(f"{label}: «{used_q}»")
-
         if st.session_state.get(f"{prefix}_searched") and query.strip() and not all_indices:
             empty_kind = st.session_state.get(f"{prefix}_empty_kind") or ""
             if empty_kind == "filtered":
@@ -1522,6 +1517,7 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
                             member_doc.get("source") or "local",
                             ctx,
                             parts,
+                            len(group),
                         )
 
             st.session_state[f"{prefix}_selected"] = selected_idx

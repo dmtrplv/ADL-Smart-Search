@@ -172,6 +172,7 @@ def _render_details(
     archetype_by_file: dict | None = None,
     ctx=None,
     prompts: dict | None = None,
+    group_size: int = 1,
 ) -> None:
     field_name = (doc.get("field") or "").strip()
     at_code = (doc.get("at_code") or "").strip()
@@ -272,7 +273,7 @@ def _make_field_spec(ctx: TabContext) -> SearchTabSpec:
         pick_all_label="Выбрать все поля",
         make_pick_key=lambda doc, idx: f"field_pick_{idx}_{doc.get('file', '')}_{doc.get('at_code', '')}",
         render_result_name=_render_name,
-        render_result_details=lambda doc, md, fn, source, runtime_ctx, prompts: _render_details(
+        render_result_details=lambda doc, md, fn, source, runtime_ctx, prompts, group_size: _render_details(
             doc,
             md,
             fn,
@@ -281,6 +282,7 @@ def _make_field_spec(ctx: TabContext) -> SearchTabSpec:
             archetype_by_file,
             runtime_ctx,
             prompts,
+            group_size,
         ),
         result_label=_field_label,
         default_question_key="default_question_fields",
