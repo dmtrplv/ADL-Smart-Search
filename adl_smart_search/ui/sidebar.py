@@ -601,6 +601,35 @@ def _corp_generation_defaults(cfg: AppConfig, prefix: str) -> dict:
     return out
 
 
+def _render_thinking_toggle(prefix: str, raw_json: str, label: str) -> dict:
+    """Явный переключатель thinking — только для моделей с его поддержкой.
+
+    Поддержка определяется по ``chat_template_kwargs.enable_thinking`` в
+    ``model_kwargs`` (обычно приходит из ``corp_catalog.json``). Если ключа нет,
+    переключатель не отрисовывается и параметр не отправляется.
+    """
+    chat = safe_load_json_dict(raw_json).get("chat_template_kwargs")
+    supported = isinstance(chat, dict) and isinstance(chat.get("enable_thinking"), bool)
+    use_key = f"{prefix}_use_enable_thinking"
+    value_key = f"{prefix}_enable_thinking"
+    if not supported:
+        st.session_state[use_key] = False
+        st.session_state[value_key] = False
+        return {use_key: False, value_key: False}
+    if value_key not in st.session_state:
+        st.session_state[value_key] = bool(chat.get("enable_thinking"))
+    enabled = st.toggle(
+        label,
+        key=value_key,
+        help=(
+            "Модель поддерживает режим размышлений: в corp_catalog.json задан "
+            "chat_template_kwargs.enable_thinking. Отправляется как этот же параметр."
+        ),
+    )
+    st.session_state[use_key] = True
+    return {use_key: True, value_key: bool(enabled)}
+
+
 def _render_corp_generation_settings(
     cfg: AppConfig,
     *,
@@ -657,7 +686,6 @@ def _render_corp_generation_settings(
         and isinstance(data.get("presence_penalty"), (int, float)),
         "repetition_penalty": from_catalog
         and isinstance(data.get("repetition_penalty"), (int, float)),
-        "enable_thinking": from_catalog and isinstance(chat.get("enable_thinking"), bool),
     }
 
     def _session(name: str, default):
@@ -734,17 +762,6 @@ def _render_corp_generation_settings(
             disabled=locked["top_k"] or not use_top_k,
             key=f"{key_prefix}_top_k",
         )
-        enable_thinking = st.checkbox(
-            "Размышления включены",
-            value=bool(_session("enable_thinking", False)),
-            disabled=locked["enable_thinking"],
-            key=f"{key_prefix}_enable_thinking",
-            help=(
-                "По умолчанию выключено. Отправляется как "
-                "chat_template_kwargs.enable_thinking."
-            ),
-        )
-        use_enable_thinking = locked["enable_thinking"] or bool(enable_thinking)
         use_presence_penalty = st.checkbox(
             "Задать presence_penalty",
             key=f"{key_prefix}_use_presence_penalty",
@@ -798,8 +815,6 @@ def _render_corp_generation_settings(
         f"{key_prefix}_top_p": float(top_p),
         f"{key_prefix}_use_top_k": bool(use_top_k),
         f"{key_prefix}_top_k": int(top_k),
-        f"{key_prefix}_use_enable_thinking": bool(use_enable_thinking),
-        f"{key_prefix}_enable_thinking": bool(enable_thinking),
         f"{key_prefix}_use_presence_penalty": bool(use_presence_penalty),
         f"{key_prefix}_presence_penalty": float(presence_penalty),
         f"{key_prefix}_use_repetition_penalty": bool(use_repetition_penalty),
@@ -963,6 +978,9 @@ def _render_api_base_key_model(
             catalog_model=selected_model_name,
         )
     )
+    out.update(
+        _render_thinking_toggle("corp", main_kwargs_json, "Размышления (thinking)")
+    )
     if bool(st.session_state.get("llm_aux_model_enabled", False)):
         st.markdown("**Модель для перевода и расширения**")
         aux_catalog_names = [
@@ -1029,6 +1047,13 @@ def _render_api_base_key_model(
                 raw_json=aux_kwargs_json,
                 from_catalog=aux_from_catalog,
                 catalog_model=saved_aux_name,
+            )
+        )
+        out.update(
+            _render_thinking_toggle(
+                "corp_aux",
+                aux_kwargs_json,
+                "Размышления (thinking) — перевод/расширение",
             )
         )
     return out

@@ -112,6 +112,45 @@ def test_reset_search_to_factory_defaults(tmp_path, monkeypatch):
     assert any("несохранённые" in caption.value for caption in at.caption)
 
 
+def test_thinking_toggle_only_for_supporting_models(tmp_path, monkeypatch):
+    _prepare(tmp_path, monkeypatch)
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    catalog = [
+        {
+            "model_name": "Plain",
+            "provider": "p",
+            "model": "m",
+            "model_kwargs": {},
+            "context_window": 8192,
+        },
+        {
+            "model_name": "Thinker",
+            "provider": "p",
+            "model": "m2",
+            "model_kwargs": {"chat_template_kwargs": {"enable_thinking": True}},
+            "context_window": 8192,
+        },
+    ]
+    (config_dir / "corp_catalog.json").write_text(json.dumps(catalog), encoding="utf-8")
+
+    at = AppTest.from_file(APP, default_timeout=120).run()
+    at.toggle[0].set_value(True).run()
+
+    next(s for s in at.selectbox if s.label == "Модель").set_value("Plain").run()
+    assert not any(t.label == "Размышления (thinking)" for t in at.toggle)
+    assert at.session_state["corp_use_enable_thinking"] is False
+
+    next(s for s in at.selectbox if s.label == "Модель").set_value("Thinker").run()
+    thinking = next(t for t in at.toggle if t.label == "Размышления (thinking)")
+    assert thinking.value is True
+    assert at.session_state["corp_use_enable_thinking"] is True
+
+    thinking.set_value(False).run()
+    assert at.session_state["corp_enable_thinking"] is False
+    assert at.session_state["corp_use_enable_thinking"] is True
+
+
 def test_save_llm_block_writes_config(tmp_path, monkeypatch):
     _prepare(tmp_path, monkeypatch)
     at = AppTest.from_file(APP, default_timeout=120).run()
@@ -202,9 +241,9 @@ def test_catalog_model_locks_model_fields_and_prefills_generation(tmp_path, monk
     assert top_p.disabled is True
     assert top_p.value == 0.8
 
-    thinking = next(c for c in at.checkbox if c.label == "Размышления включены")
-    assert thinking.disabled is True
+    thinking = next(t for t in at.toggle if t.label == "Размышления (thinking)")
     assert thinking.value is False
+    assert thinking.disabled is False
 
 
 def test_aux_model_list_mixes_aiedu_and_mosgpt(tmp_path, monkeypatch):
