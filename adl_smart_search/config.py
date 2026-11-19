@@ -19,11 +19,9 @@ class AppConfig:
     # Index files location (корень дерева индексов: <index_dir>/local, <index_dir>/ckm)
     index_dir: str = "./data"
 
-    # Базовые конфиги (settings.json, llm.json, corp_catalog.json, .env).
+    # Конфиги (settings.json, llm.json, corp_catalog.json, .env).
     # Обычно это <repo_root>/config; для старой раскладки может совпадать с index_dir.
     config_dir: str = "./config"
-    # Пользовательские overrides — вне репозитория с данными.
-    user_config_dir: str = ""
     # Корень Git-репозитория (например, C:\emiastemplates).
     repo_root: str = ""
     # Папка с config/ и data/ (например, <repo_root>\Soft\ADL Smart Search).
@@ -154,7 +152,6 @@ def from_env(default_adl_dir: str) -> AppConfig:
         preferred_lang=os.getenv("ADL_LANG", "ru"),
         index_dir=data_dir,
         config_dir=config_dir,
-        user_config_dir=os.getenv("ADL_USER_CONFIG_DIR", ""),
         repo_root=os.getenv("ADL_REPO_ROOT", ""),
         data_root=os.getenv("ADL_DATA_ROOT", ""),
         ckm_adl_dir=os.getenv("ADL_CKM_DIR", ""),

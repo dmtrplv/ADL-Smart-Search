@@ -2,7 +2,6 @@ from pathlib import Path
 
 from adl_smart_search.app_paths import (
     AppPaths,
-    bootstrap_data_root,
     bootstrap_repo_root,
     data_layout,
     data_root_from_repo,
@@ -37,7 +36,6 @@ def _clear_path_env(monkeypatch):
         "ADL_DATA_ROOT",
         "ADL_INDEX_DIR",
         "ADL_CONFIG_DIR",
-        "ADL_USER_CONFIG_DIR",
         "ADL_LOCAL_DIR",
         "ADL_APP_MODE",
     ):
@@ -72,28 +70,27 @@ def test_bootstrap_roundtrip(tmp_path, monkeypatch):
     _clear_path_env(monkeypatch)
     monkeypatch.setenv("ADL_LOCAL_DIR", str(tmp_path / "local"))
     repo_root = tmp_path / "emiastemplates"
-    data_root = _make_repo(repo_root)
+    _make_repo(repo_root)
 
-    write_bootstrap(str(repo_root), str(data_root))
+    write_bootstrap(str(repo_root))
 
     assert bootstrap_repo_root() == str(repo_root)
-    assert bootstrap_data_root() == str(data_root)
     assert (tmp_path / "local" / "config" / "bootstrap.json").is_file()
 
 
-def test_bootstrap_reuses_repo_when_data_root_moved(tmp_path, monkeypatch):
+def test_bootstrap_resolves_data_root_from_repo(tmp_path, monkeypatch):
     _clear_path_env(monkeypatch)
     local = tmp_path / "local"
     monkeypatch.setenv("ADL_LOCAL_DIR", str(local))
     repo_root = tmp_path / "emiastemplates"
     data_root = _make_repo(repo_root)
-    write_bootstrap(str(repo_root), str(tmp_path / "missing-data-root"), str(local / "config"))
+    write_bootstrap(str(repo_root), str(local / "config"))
 
     paths = resolve_app_paths(str(tmp_path / "install"), mode="exe")
 
     assert paths.repo_root == str(repo_root)
     assert paths.data_root == str(data_root)
-    assert paths.source == "bootstrap_repo"
+    assert paths.source == "bootstrap"
 
 
 def test_resolve_uses_explicit_repo_env(tmp_path, monkeypatch):
@@ -181,13 +178,13 @@ def test_bootstrap_with_repo_only_derives_data_root(tmp_path, monkeypatch):
     monkeypatch.setenv("ADL_LOCAL_DIR", str(local))
     repo_root = tmp_path / "emiastemplates"
     data_root = _make_repo(repo_root)
-    write_bootstrap(str(repo_root), "", str(local / "config"))
+    write_bootstrap(str(repo_root), str(local / "config"))
 
     paths = resolve_app_paths(str(tmp_path / "install"), mode="exe")
 
     assert paths.repo_root == str(repo_root)
     assert paths.data_root == str(data_root)
-    assert paths.source == "bootstrap_repo"
+    assert paths.source == "bootstrap"
 
 
 def test_dev_mode_uses_project_paths(tmp_path, monkeypatch):
@@ -205,7 +202,7 @@ def test_dev_mode_uses_project_paths(tmp_path, monkeypatch):
     assert paths.data_dir == str(data_root / "data")
     assert paths.source == "dev_project"
     assert paths.local_dir == str(install / ".test-local")
-    assert paths.user_config_dir == str(install / ".test-local" / "config")
+    assert paths.local_config_dir == str(install / ".test-local" / "config")
 
 
 def test_dev_mode_defaults_local_dir_to_project(tmp_path, monkeypatch):
@@ -216,7 +213,7 @@ def test_dev_mode_defaults_local_dir_to_project(tmp_path, monkeypatch):
     paths = resolve_app_paths(str(install), mode="dev")
 
     assert paths.local_dir == str(install / ".adl-local")
-    assert paths.user_config_dir == str(install / ".adl-local" / "config")
+    assert paths.local_config_dir == str(install / ".adl-local" / "config")
     assert paths.logs_dir == str(install / ".adl-local" / "logs")
 
 
@@ -225,10 +222,10 @@ def test_dev_mode_ignores_bootstrap_from_other_repo(tmp_path, monkeypatch):
     install = tmp_path / "project"
     project_data_root = _make_data_root(install)
     other_repo = tmp_path / "other-repo"
-    other_data_root = _make_repo(other_repo)
+    _make_repo(other_repo)
     local = tmp_path / "local"
     monkeypatch.setenv("ADL_LOCAL_DIR", str(local))
-    write_bootstrap(str(other_repo), str(other_data_root), str(local / "config"))
+    write_bootstrap(str(other_repo), str(local / "config"))
 
     paths = resolve_app_paths(str(install), mode="dev")
 
@@ -244,7 +241,7 @@ def test_exe_mode_uses_bootstrap_repo(tmp_path, monkeypatch):
     data_root = _make_repo(repo_root)
     local = tmp_path / "local"
     monkeypatch.setenv("ADL_LOCAL_DIR", str(local))
-    write_bootstrap(str(repo_root), str(data_root), str(local / "config"))
+    write_bootstrap(str(repo_root), str(local / "config"))
 
     paths = resolve_app_paths(str(tmp_path / "install"), mode="exe")
 
@@ -263,7 +260,6 @@ def test_needs_data_setup_is_disabled_for_dev_mode(tmp_path):
         data_root=str(tmp_path),
         config_dir=str(tmp_path / "config"),
         data_dir=str(tmp_path / "data"),
-        user_config_dir=str(tmp_path / ".adl-local" / "config"),
         logs_dir=str(tmp_path / ".adl-local" / "logs"),
         local_dir=str(tmp_path / ".adl-local"),
         mode="dev",
@@ -280,7 +276,6 @@ def test_needs_data_setup_for_empty_exe_mode(tmp_path):
         data_root="",
         config_dir=str(tmp_path / "config"),
         data_dir=str(tmp_path / "data"),
-        user_config_dir=str(tmp_path / "local" / "config"),
         logs_dir=str(tmp_path / "local" / "logs"),
         local_dir=str(tmp_path / "local"),
         mode="exe",

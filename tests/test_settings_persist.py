@@ -9,6 +9,7 @@ from adl_smart_search.ui.settings import (
     SEARCH_SETTINGS_TYPES,
     apply_llm_settings,
     apply_search_settings,
+    cleanup_legacy_overrides,
     is_dev_mode,
     llm_settings_path,
     load_llm_settings,
@@ -280,3 +281,18 @@ def test_is_dev_mode_from_env_or_argv(monkeypatch, env_value, argv, expected):
     monkeypatch.setattr(sys, "argv", argv)
 
     assert is_dev_mode() is expected
+
+def test_cleanup_legacy_overrides_removes_old_files(tmp_path):
+    local = tmp_path / "local" / "config"
+    local.mkdir(parents=True)
+    (local / "settings.overrides.json").write_text("{}", encoding="utf-8")
+    (local / "llm.overrides.json").write_text("{}", encoding="utf-8")
+    (local / "keep.json").write_text("{}", encoding="utf-8")
+
+    removed = cleanup_legacy_overrides(str(local))
+
+    assert len(removed) == 2
+    assert not (local / "settings.overrides.json").exists()
+    assert not (local / "llm.overrides.json").exists()
+    assert (local / "keep.json").exists()
+    assert cleanup_legacy_overrides(str(local)) == []

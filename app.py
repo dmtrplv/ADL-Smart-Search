@@ -14,7 +14,6 @@ from adl_smart_search.app_paths import (
     INDEX_DIR_ENV,
     LOCAL_DIR_ENV,
     REPO_ROOT_ENV,
-    USER_CONFIG_DIR_ENV,
     apply_paths_env,
     data_layout,
     data_root_from_repo,
@@ -45,11 +44,11 @@ from adl_smart_search.ui.settings import (
     CONTEXT_BUDGET_KEYS,
     apply_llm_settings,
     apply_search_settings,
+    cleanup_legacy_overrides,
     dev_mode_available,
     is_dev_mode,
-    load_effective_llm_settings,
-    load_effective_settings,
-    remove_user_llm_keys,
+    load_llm_settings,
+    load_settings,
 )
 from adl_smart_search.ui.sidebar import browse_dir, render_dev_settings
 from adl_smart_search.ui.tab_archetypes import render_archetype_tab
@@ -113,13 +112,9 @@ def _render_shutdown_page() -> None:
     timer.start()
 
 
-def _env_candidates(paths, install_root: str) -> list[str]:
-    """Локальный `.env` важнее общего, общий — важнее старого рядом с exe."""
-    return [
-        os.path.join(paths.user_config_dir, ".env"),
-        os.path.join(paths.config_dir, ".env"),
-        os.path.join(paths.install_dir or install_root, ".env"),
-    ]
+def _env_candidates(paths) -> list[str]:
+    """Единственный `.env` — в config/ того же репозитория или проекта."""
+    return [os.path.join(paths.config_dir, ".env")]
 
 
 def _needs_data_setup(paths) -> bool:
@@ -150,14 +145,13 @@ def _connect_data_repo(path: str, paths) -> bool:
     if layout is None:
         return False
     config_dir, data_dir = layout
-    write_bootstrap(repo_root, data_root, paths.user_config_dir)
+    write_bootstrap(repo_root, paths.local_config_dir)
     # Явно публикуем путь: на следующем rerun resolve_app_paths не должен
     # подхватить старый ADL_INDEX_DIR из предыдущего запуска.
     os.environ[REPO_ROOT_ENV] = os.path.abspath(repo_root)
     os.environ[DATA_ROOT_ENV] = data_root
     os.environ[INDEX_DIR_ENV] = data_dir
     os.environ[CONFIG_DIR_ENV] = config_dir
-    os.environ[USER_CONFIG_DIR_ENV] = paths.user_config_dir
     os.environ[LOCAL_DIR_ENV] = paths.local_dir
     os.environ.setdefault("ADL_LOG_DIR", paths.logs_dir)
     st.success("Папка с данными подключена.")
@@ -270,6 +264,7 @@ def main():
 
     install_root = _app_root()
     paths = resolve_app_paths(install_root)
+    cleanup_legacy_overrides(paths.local_config_dir)
     needs_setup = _needs_data_setup(paths)
     if needs_setup:
         # Не фиксируем ADL_INDEX_DIR: иначе после подключения репозитория
@@ -278,12 +273,11 @@ def main():
         os.environ[REPO_ROOT_ENV] = paths.repo_root
         os.environ[DATA_ROOT_ENV] = paths.data_root
         os.environ[CONFIG_DIR_ENV] = paths.config_dir
-        os.environ[USER_CONFIG_DIR_ENV] = paths.user_config_dir
         os.environ[LOCAL_DIR_ENV] = paths.local_dir
         os.environ.setdefault("ADL_LOG_DIR", paths.logs_dir)
     else:
         apply_paths_env(paths)
-    env_path = load_app_envs(_env_candidates(paths, install_root))
+    env_path = load_app_envs(_env_candidates(paths))
     setup_logging()
     logger = logging.getLogger("app.main")
     logger.info(
@@ -345,8 +339,7 @@ def main():
 
     logger.info("start: dev=%s", dev_mode)
     cfg = from_env(default_adl_dir="")
-    settings = load_effective_settings(cfg.config_dir, cfg.user_config_dir)
-    # Пользовательские overrides важнее базового config/ и .env: применяем их до инициализации сессии.
+    settings = load_settings(cfg.config_dir)
     apply_search_settings(cfg, settings)
     # Бюджеты контекста читаются вкладками из session_state (как dev-виджеты),
     # поэтому заполняем их и в пользовательском режиме.
@@ -354,13 +347,9 @@ def main():
         st.session_state.setdefault(
             _budget_key, int(getattr(cfg, _budget_key, 10000))
         )
-    # Выбор провайдера ИИ больше не сохраняется за пользователем: при запуске
-    # всегда действует значение из config/llm.json (по умолчанию МЭШ.ИИ.Хаб).
-    try:
-        remove_user_llm_keys(cfg.user_config_dir, {"api_kind"})
-    except Exception:
-        logger.exception("cannot clean legacy api_kind from user overrides")
-    llm_persisted = load_effective_llm_settings(cfg.config_dir, cfg.user_config_dir)
+    # Выбор провайдера ИИ не сохраняется: при запуске действует значение
+    # из config/llm.json (по умолчанию МЭШ.ИИ.Хаб).
+    llm_persisted = load_llm_settings(cfg.config_dir)
     apply_llm_settings(cfg, llm_persisted)
     init_llm_session_defaults(cfg, llm_persisted)
     try:
@@ -372,7 +361,7 @@ def main():
         logger.warning("prompts unavailable: %s", e)
     init_session_defaults(prompts)
 
-    state = render_dev_settings(cfg, settings, dev_mode, write_config=paths.is_dev)
+    state = render_dev_settings(cfg, settings, dev_mode)
 
     if not os.path.isdir(state.adl_dir):
         # Индексы лежат в <index_dir>/local и <index_dir>/ckm.

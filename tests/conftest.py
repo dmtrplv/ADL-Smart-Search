@@ -14,7 +14,6 @@ if str(ROOT) not in sys.path:
 _APP_PATH_ENV = (
     "ADL_INDEX_DIR",
     "ADL_CONFIG_DIR",
-    "ADL_USER_CONFIG_DIR",
     "ADL_REPO_ROOT",
     "ADL_DATA_ROOT",
     "ADL_LOCAL_DIR",

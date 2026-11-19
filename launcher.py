@@ -15,7 +15,6 @@ from adl_smart_search.app_paths import (
     DATA_ROOT_ENV,
     LOCAL_DIR_ENV,
     REPO_ROOT_ENV,
-    USER_CONFIG_DIR_ENV,
     apply_paths_env,
     resolve_app_paths,
 )
@@ -362,13 +361,7 @@ def _run_streamlit_in_process(
 def main() -> int:
     root = _resource_root()
     paths = resolve_app_paths(root)
-    env_path = load_app_envs(
-        [
-            os.path.join(paths.user_config_dir, ".env"),
-            os.path.join(paths.config_dir, ".env"),
-            os.path.join(root, ".env"),
-        ]
-    )
+    env_path = load_app_envs([os.path.join(paths.config_dir, ".env")])
 
     # Модели остаются частью установки; данные и конфиги — внешние.
     models_dir = os.path.join(root, "models")
@@ -385,7 +378,6 @@ def main() -> int:
         os.environ[REPO_ROOT_ENV] = paths.repo_root
         os.environ[DATA_ROOT_ENV] = paths.data_root
         os.environ[CONFIG_DIR_ENV] = paths.config_dir
-        os.environ[USER_CONFIG_DIR_ENV] = paths.user_config_dir
         os.environ[LOCAL_DIR_ENV] = paths.local_dir
 
     setup_logging()

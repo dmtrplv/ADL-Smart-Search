@@ -52,7 +52,6 @@ def test_save_search_block_writes_config(tmp_path, monkeypatch):
         (tmp_path / "config" / "settings.json").read_text(encoding="utf-8")
     )
     assert saved["keyword_bonus"] == 1.2
-    assert not (tmp_path / "local" / "config" / "settings.overrides.json").exists()
 
 
 def test_reset_search_block_restores_config_values(tmp_path, monkeypatch):
@@ -71,6 +70,27 @@ def test_reset_search_block_restores_config_values(tmp_path, monkeypatch):
     assert at.session_state["keyword_bonus"] == 0.9
     saved = json.loads((config_dir / "settings.json").read_text(encoding="utf-8"))
     assert saved["keyword_bonus"] == 0.9
+
+
+def test_reset_all_button_restores_all_blocks(tmp_path, monkeypatch):
+    _prepare(tmp_path, monkeypatch)
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "settings.json").write_text(
+        json.dumps({"keyword_bonus": 0.9}), encoding="utf-8"
+    )
+    at = AppTest.from_file(APP, default_timeout=120).run()
+
+    at.toggle[0].set_value(True).run()
+    next(s for s in at.slider if s.label == "Вес точного совпадения").set_value(1.2).run()
+    assert any("несохранённые" in caption.value for caption in at.caption)
+
+    at.button(key="reset_all_settings_btn").click().run()
+
+    assert at.session_state["keyword_bonus"] == 0.9
+    saved = json.loads((config_dir / "settings.json").read_text(encoding="utf-8"))
+    assert saved["keyword_bonus"] == 0.9
+    assert not any("несохранённые" in caption.value for caption in at.caption)
 
 
 def test_context_budget_saved_via_button(tmp_path, monkeypatch):
@@ -162,7 +182,6 @@ def test_save_llm_block_writes_config(tmp_path, monkeypatch):
     llm_file = tmp_path / "config" / "llm.json"
     assert llm_file.exists()
     assert json.loads(llm_file.read_text(encoding="utf-8"))["gigachat_model"] == "GigaChat-2-Pro"
-    assert not (tmp_path / "local" / "config" / "llm.overrides.json").exists()
 
 
 def test_save_llm_block_keeps_enable_thinking_mode(tmp_path, monkeypatch):
@@ -322,13 +341,30 @@ def test_catalog_locks_only_generation_params_present_in_json(tmp_path, monkeypa
     )
 
 
-def test_user_mode_does_not_create_llm_file_without_dev(tmp_path, monkeypatch):
+def test_user_mode_does_not_write_config(tmp_path, monkeypatch):
     _prepare(tmp_path, monkeypatch)
 
     AppTest.from_file(APP, default_timeout=120).run()
 
-    assert not (tmp_path / "local" / "config" / "llm.overrides.json").exists()
     assert not (tmp_path / "config" / "llm.json").exists()
+    assert not (tmp_path / "config" / "settings.json").exists()
+
+
+def test_admin_exe_dev_save_writes_repo_config(tmp_path, monkeypatch):
+    """dev-режим exe пишет в тот же config/, что читают пользователи."""
+    _prepare(tmp_path, monkeypatch)
+    monkeypatch.setenv("ADL_APP_MODE", "exe")
+    at = AppTest.from_file(APP, default_timeout=120).run()
+
+    at.toggle[0].set_value(True).run()
+    next(s for s in at.slider if s.label == "Вес точного совпадения").set_value(1.2).run()
+    at.button(key="save_search_settings_btn").click().run()
+
+    saved = json.loads(
+        (tmp_path / "config" / "settings.json").read_text(encoding="utf-8")
+    )
+    assert saved["keyword_bonus"] == 1.2
+    assert not (tmp_path / "local" / "config" / "settings.overrides.json").exists()
 
 
 def test_exit_button_is_rendered(tmp_path, monkeypatch):

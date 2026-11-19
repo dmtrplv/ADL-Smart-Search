@@ -8,16 +8,15 @@
 
 Есть два режима:
 
-* запуск из проекта (``dev``) — данные и базовые конфиги берутся из
-  ``<project>/data`` и ``<project>/config``, локальные overrides/логи — из
-  ``<project>/.adl-local``;
+* запуск из проекта (``dev``) — данные и конфиги берутся из
+  ``<project>/data`` и ``<project>/config``, логи — из ``<project>/.adl-local``;
 * собранный exe (``exe``) — данные и конфиги берутся из штатной папки
   ``C:\\emiastemplates\\Soft\\ADL Smart Search``. Если её нет, пользователь
   выбирает папку репозитория ``emiastemplates``; путь запоминается в
   ``bootstrap.json``.
 
-Пользовательские настройки и путь к репозиторию никогда не попадают в сам
-репозиторий, поэтому обновление приложения и ``git pull`` их не затирают.
+Настроек вне репозитория нет: локально хранится только путь к репозиторию.
+Поэтому ``git pull`` и обновление приложения не затирают пользовательские данные.
 """
 
 from __future__ import annotations
@@ -42,7 +41,6 @@ REPO_ROOT_ENV = "ADL_REPO_ROOT"
 DATA_ROOT_ENV = "ADL_DATA_ROOT"
 INDEX_DIR_ENV = "ADL_INDEX_DIR"
 CONFIG_DIR_ENV = "ADL_CONFIG_DIR"
-USER_CONFIG_DIR_ENV = "ADL_USER_CONFIG_DIR"
 LOCAL_DIR_ENV = "ADL_LOCAL_DIR"
 
 # Штатное место репозитория emiastemplates и папки с config/ и data/.
@@ -59,7 +57,6 @@ class AppPaths:
     data_root: str
     config_dir: str
     data_dir: str
-    user_config_dir: str
     logs_dir: str
     local_dir: str = ""
     mode: str = "exe"
@@ -73,6 +70,13 @@ class AppPaths:
     @property
     def is_dev(self) -> bool:
         return self.mode == "dev"
+
+    @property
+    def local_config_dir(self) -> str:
+        """Каталог для bootstrap и служебного кэша (не настройки приложения)."""
+        if self.local_dir:
+            return os.path.join(self.local_dir, "config")
+        return local_config_dir()
 
 
 def app_mode() -> str:
@@ -207,24 +211,21 @@ def bootstrap_repo_root(local_config: str | None = None) -> str:
     """Сохранённый корень Git-репозитория (например, ``C:\\emiastemplates``)."""
     data = read_bootstrap(local_config)
     root = str(data.get("repo_root") or "").strip()
+    if not root:
+        # Старый bootstrap мог хранить только папку data_root.
+        legacy_data = str(data.get("data_root") or "").strip()
+        if legacy_data:
+            root = repo_root_from_data_root(legacy_data)
     return _expand_path(root) if root else ""
 
 
-def bootstrap_data_root(local_config: str | None = None) -> str:
-    """Сохранённая папка с ``config/`` и ``data/``."""
-    data = read_bootstrap(local_config)
-    root = str(data.get("data_root") or "").strip()
-    return _expand_path(root) if root else ""
-
-
-def write_bootstrap(repo_root: str, data_root: str, local_config: str | None = None) -> None:
-    """Запоминает корень репозитория и папку данных (вне самого репозитория)."""
+def write_bootstrap(repo_root: str, local_config: str | None = None) -> None:
+    """Запоминает единственный локальный параметр — корень репозитория."""
     _write_json_atomic(
         bootstrap_path(local_config),
         {
-            "schema": 1,
+            "schema": 2,
             "repo_root": _expand_path(repo_root) if repo_root else "",
-            "data_root": _expand_path(data_root) if data_root else "",
             "configured_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         },
     )
@@ -238,7 +239,6 @@ def _paths_from_data_root(
     install_dir: str,
     mode: str,
     local_dir: str,
-    user_config_dir: str,
     logs_dir: str,
 ) -> AppPaths | None:
     layout = data_layout(data_root)
@@ -253,7 +253,6 @@ def _paths_from_data_root(
         data_root=resolved_data,
         config_dir=config_dir,
         data_dir=data_dir,
-        user_config_dir=user_config_dir,
         logs_dir=logs_dir,
         local_dir=local_dir,
         mode=mode,
@@ -284,13 +283,11 @@ def resolve_app_paths(
 
     default_local = dev_local_dir(install) if resolved_mode == "dev" else None
     local_dir = local_app_dir(default_local)
-    user_config = os.path.join(local_dir, "config")
     logs = os.path.join(local_dir, "logs")
     common = {
         "install_dir": install,
         "mode": resolved_mode,
         "local_dir": local_dir,
-        "user_config_dir": user_config,
         "logs_dir": logs,
     }
 
@@ -346,22 +343,12 @@ def resolve_app_paths(
             **common,
         )
 
-    saved_repo = bootstrap_repo_root(user_config)
-    saved_data = bootstrap_data_root(user_config)
-    if saved_data:
-        paths = _paths_from_data_root(saved_data, saved_repo, "bootstrap", **common)
-        if paths is not None:
-            return paths
-        logger.warning("app_paths: bootstrap data root is no longer valid: %s", saved_data)
+    saved_repo = bootstrap_repo_root(os.path.join(local_dir, "config"))
     if saved_repo:
         resolved_data = data_root_from_repo(saved_repo)
         if resolved_data:
-            paths = _paths_from_data_root(resolved_data, saved_repo, "bootstrap_repo", **common)
+            paths = _paths_from_data_root(resolved_data, saved_repo, "bootstrap", **common)
             if paths is not None:
-                try:
-                    write_bootstrap(saved_repo, resolved_data, user_config)
-                except Exception:
-                    logger.exception("app_paths: cannot refresh bootstrap path")
                 return paths
         logger.warning("app_paths: bootstrap repo is no longer valid: %s", saved_repo)
 
@@ -387,7 +374,6 @@ def apply_paths_env(paths: AppPaths) -> None:
     """Публикует разрешённые пути в окружении для остального приложения."""
     os.environ[INDEX_DIR_ENV] = paths.data_dir
     os.environ[CONFIG_DIR_ENV] = paths.config_dir
-    os.environ[USER_CONFIG_DIR_ENV] = paths.user_config_dir
     os.environ[REPO_ROOT_ENV] = paths.repo_root
     os.environ[DATA_ROOT_ENV] = paths.data_root
     os.environ[APP_MODE_ENV] = paths.mode

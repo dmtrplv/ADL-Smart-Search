@@ -4,9 +4,7 @@ import argparse
 import json
 import logging
 import os
-import shutil
 import sys
-from datetime import datetime
 
 import numpy as np
 
@@ -17,6 +15,28 @@ logger = logging.getLogger(__name__)
 LLM_SETTINGS_FILENAME = "llm.json"
 # Секреты не сохраняем в llm.json: они живут в .env / окружении.
 LLM_SECRET_KEYS = {"api_key", "openai_api_key", "gigachat_credentials"}
+
+# Файлы старой схемы «базовый config/ + пользовательские overrides».
+# Больше не читаются и не создаются; при старте удаляем, чтобы не путали.
+LEGACY_OVERRIDE_FILENAMES = ("settings.overrides.json", "llm.overrides.json")
+
+
+def cleanup_legacy_overrides(local_config_dir: str) -> list[str]:
+    """Удаляет устаревшие пользовательские overrides (если остались)."""
+    removed: list[str] = []
+    for name in LEGACY_OVERRIDE_FILENAMES:
+        path = os.path.join(local_config_dir or ".", name)
+        try:
+            if os.path.isfile(path):
+                os.remove(path)
+                removed.append(path)
+        except OSError:
+            logger.exception("cleanup_legacy_overrides: cannot remove %s", path)
+    if removed:
+        logger.warning(
+            "Удалены устаревшие пользовательские overrides: %s", ", ".join(removed)
+        )
+    return removed
 
 
 # Параметры поиска, которые сохраняются в settings.json из dev-панели.
@@ -112,18 +132,13 @@ LLM_UI_DEFAULTS = {
 }
 
 # Бюджет ADL-контекста: значения читаются вкладками из session_state и
-# сохраняются в settings.json только при явном изменении в dev-панели.
+# сохраняются в settings.json только по кнопке «Сохранить» в dev-панели.
 CONTEXT_BUDGET_KEYS = ("context_tokens_archetypes", "context_tokens_fields")
 
 
 def config_settings_path(config_dir: str) -> str:
     """Базовый settings.json из общего config/ (управляется администратором)."""
     return os.path.join(config_dir or ".", "settings.json")
-
-
-def user_settings_path(user_config_dir: str) -> str:
-    """Пользовательские переопределения поисковых настроек."""
-    return os.path.join(user_config_dir or ".", "settings.overrides.json")
 
 
 def settings_path(index_dir: str) -> str:
@@ -186,55 +201,8 @@ def save_settings(config_dir: str, settings: dict) -> None:
         logger.exception("save_settings: cannot write settings")
 
 
-def load_user_settings(user_config_dir: str) -> dict:
-    """Только пользовательские переопределения (не базовый конфиг)."""
-    if not user_config_dir:
-        return {}
-    return _read_json_dict(user_settings_path(user_config_dir))
-
-
-def load_effective_settings(config_dir: str, user_config_dir: str = "") -> dict:
-    """Базовые настройки + пользовательские overrides (overrides важнее)."""
-    merged = load_settings(config_dir)
-    merged.update(load_user_settings(user_config_dir))
-    return merged
-
-
-def save_user_settings(config_dir: str, user_config_dir: str, values: dict) -> bool:
-    """Сохраняет только отличия от базового конфига.
-
-    Если пользователь вернул базовое значение, соответствующий ключ удаляется
-    из override-файла. Так будущие изменения базового config/ применяются ко
-    всем, у кого нет явного переопределения.
-    """
-    if not user_config_dir:
-        return False
-    base = load_settings(config_dir)
-    current = load_user_settings(user_config_dir)
-    changed = dict(current)
-    for key, value in (values or {}).items():
-        if key in base and base.get(key) == value:
-            changed.pop(key, None)
-        else:
-            changed[key] = value
-    path = user_settings_path(user_config_dir)
-    if not changed:
-        try:
-            if os.path.exists(path):
-                os.remove(path)
-            return True
-        except OSError:
-            logger.exception("save_user_settings: cannot remove %s", path)
-            return False
-    return _write_json_atomic(path, changed)
-
-
 def config_llm_settings_path(config_dir: str) -> str:
     return os.path.join(config_dir or ".", LLM_SETTINGS_FILENAME)
-
-
-def user_llm_settings_path(user_config_dir: str) -> str:
-    return os.path.join(user_config_dir or ".", "llm.overrides.json")
 
 
 def llm_settings_path(index_dir: str) -> str:
@@ -261,138 +229,6 @@ def save_llm_settings(config_dir: str, values: dict) -> bool:
     except Exception:
         logger.exception("save_llm_settings: cannot write llm settings")
         return False
-
-
-def load_user_llm_settings(user_config_dir: str) -> dict:
-    if not user_config_dir:
-        return {}
-    return _read_json_dict(user_llm_settings_path(user_config_dir))
-
-
-def load_effective_llm_settings(config_dir: str, user_config_dir: str = "") -> dict:
-    base = load_llm_settings(config_dir)
-    user = load_user_llm_settings(user_config_dir)
-    # Провайдер ИИ не сохраняется за пользователем: при запуске действует
-    # значение из config/llm.json (по умолчанию МЭШ.ИИ.Хаб).
-    user.pop("api_kind", None)
-    merged = dict(base)
-    merged.update(user)
-    return merged
-
-
-def remove_user_llm_keys(user_config_dir: str, keys: set[str]) -> bool:
-    """Удаляет устаревшие ключи из пользовательского llm.overrides.json.
-
-    Возвращает True, если файл был изменён. Если ключей не осталось,
-    файл удаляется.
-    """
-    if not user_config_dir:
-        return False
-    current = load_user_llm_settings(user_config_dir)
-    present = [key for key in keys if key in current]
-    if not present:
-        return False
-    for key in present:
-        current.pop(key, None)
-    path = user_llm_settings_path(user_config_dir)
-    if not current:
-        try:
-            if os.path.exists(path):
-                os.remove(path)
-            return True
-        except OSError:
-            logger.exception("remove_user_llm_keys: cannot remove %s", path)
-            return False
-    return _write_json_atomic(path, current, private=True)
-
-
-def save_user_llm_settings(config_dir: str, user_config_dir: str, values: dict) -> bool:
-    """Сохраняет только отличия LLM-настроек от базового llm.json."""
-    if not user_config_dir:
-        return False
-    base = load_llm_settings(config_dir)
-    current = load_user_llm_settings(user_config_dir)
-    changed = dict(current)
-    for key, value in _without_secrets(values).items():
-        if key in base and base.get(key) == value:
-            changed.pop(key, None)
-        else:
-            changed[key] = value
-    path = user_llm_settings_path(user_config_dir)
-    if not changed:
-        try:
-            if os.path.exists(path):
-                os.remove(path)
-            return True
-        except OSError:
-            logger.exception("save_user_llm_settings: cannot remove %s", path)
-            return False
-    return _write_json_atomic(path, changed, private=True)
-
-
-def _backup_path(path: str) -> str:
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    return f"{path}.bak-{stamp}"
-
-
-def reset_user_overrides(
-    user_config_dir: str,
-    *,
-    settings_keys: set[str] | None = None,
-    llm_keys: set[str] | None = None,
-    backup: bool = True,
-) -> list[str]:
-    """Удаляет пользовательские overrides (полностью или только указанные ключи).
-
-    ``settings_keys=None`` и ``llm_keys=None`` — удалить оба файла целиком.
-    Возвращает список затронутых файлов.
-    """
-    if not user_config_dir:
-        return []
-    touched: list[str] = []
-    reset_all = settings_keys is None and llm_keys is None
-    targets = (
-        (user_settings_path(user_config_dir), settings_keys),
-        (user_llm_settings_path(user_config_dir), llm_keys),
-    )
-    for path, keys in targets:
-        if not reset_all and keys is None:
-            continue
-        if not os.path.exists(path):
-            continue
-        if keys is None:
-            if backup:
-                try:
-                    os.replace(path, _backup_path(path))
-                except OSError:
-                    logger.exception("reset_user_overrides: cannot backup %s", path)
-                    continue
-            else:
-                try:
-                    os.remove(path)
-                except OSError:
-                    logger.exception("reset_user_overrides: cannot remove %s", path)
-                    continue
-            touched.append(path)
-            continue
-
-        if backup:
-            try:
-                shutil.copy2(path, _backup_path(path))
-            except OSError:
-                logger.exception("reset_user_overrides: cannot backup %s", path)
-        data = _read_json_dict(path)
-        for key in keys:
-            data.pop(key, None)
-        if data:
-            _write_json_atomic(path, data)
-        else:
-            try:
-                os.remove(path)
-            except OSError:
-                pass
-        touched.append(path)
-    return touched
 
 
 def _coerce_value(kind: type, value):
