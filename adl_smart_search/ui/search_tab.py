@@ -330,35 +330,9 @@ setTimeout(() => {
 </script>
 """
 
-# Даты индексации в подписях источников. Streamlit не даёт стилизовать часть
-# markdown-подписи радио, поэтому оборачиваем вторую строку (дату) в span.
-_SOURCE_DATES_JS = """
-<style>html,body{margin:0;padding:0;height:0;overflow:hidden}</style>
-<script>
-setTimeout(() => {
-  try {
-    const doc = window.parent.document;
-    const group = doc.querySelector('[role="radiogroup"][aria-label="Источники"]');
-    if (!group) return;
-    const dateRe = /^\\s*(\\d{2}\\.\\d{2}\\.\\d{4})\\s*$/;
-    for (const label of group.querySelectorAll('label')) {
-      if (label.querySelector('.src-date')) continue;
-      const p = label.querySelector('[data-testid="stMarkdownContainer"] p');
-      if (!p) continue;
-      for (const node of Array.from(p.childNodes)) {
-        if (node.nodeType !== 3) continue;
-        const m = node.textContent.match(dateRe);
-        if (!m) continue;
-        const span = doc.createElement('span');
-        span.className = 'src-date';
-        span.textContent = m[1];
-        p.replaceChild(span, node);
-      }
-    }
-  } catch (e) {}
-}, 150);
-</script>
-"""
+# Даты индексации в подписях источников оформляются markdown-кодом (``дата``):
+# так они сразу рисуются мелким шрифтом, без JS-обёртки после первой отрисовки.
+# Стили — в CHAT_SIDEBAR_CSS (селектор code внутри радиогруппы «Источники»).
 
 # Streamlit даёт контейнеру с key класс .st-key-<key> (см. src.BnXM6qiK.js, wO()).
 # Сайдбар отдан чату: делаем его чуть шире и аккуратно переносим текст в кнопках.
@@ -526,9 +500,14 @@ section[data-testid="stSidebar"] [class*="chat_composer"] textarea {
   color: inherit;
   opacity: 0.9;
 }
-.src-date {
+[role="radiogroup"][aria-label="Источники"] label code {  font-family: inherit;
   font-size: 0.72em;
   opacity: 0.55;
+  background: none;
+  padding: 0;
+  border: none;
+  color: inherit;
+  white-space: nowrap;
 }
 .src-badge-local {
   background: rgba(31, 119, 180, 0.18);
@@ -809,7 +788,7 @@ def _source_label_with_date(label: str, date_s: str) -> str:
     """
     if not date_s:
         return label
-    return f"{label}  \n{date_s}"
+    return f"{label}  \n`{date_s}`"
 
 
 def _run_pending_dim_check(ctx: TabContext) -> None:
@@ -1359,14 +1338,6 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
                     if checked:
                         selected_now.append(term)
                 st.session_state[f"{prefix}_expand_selected"] = selected_now
-
-    # Уникальный маркер заставляет iframe перезагрузиться при смене вкладки/рендере:
-    # иначе JS-обёртка даты не видит новые подписи на вкладке «Поля».
-    st.session_state["_source_dates_seq"] = int(st.session_state.get("_source_dates_seq") or 0) + 1
-    st.iframe(
-        _SOURCE_DATES_JS + f"\n<!-- {prefix}-{st.session_state['_source_dates_seq']} -->",
-        height=1,
-    )
 
     query = st.session_state.get(f"{prefix}_query") or ""
     if run_search or find_expand:

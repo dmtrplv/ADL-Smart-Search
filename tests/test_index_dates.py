@@ -52,8 +52,9 @@ def test_index_date_for_source_uses_its_own_index(tmp_path):
 
 
 def test_source_label_with_date_shows_date_under_label():
+    # Дата оформлена markdown-кодом: мелкий шрифт задаётся CSS с первой отрисовки.
     assert _source_label_with_date("Локальная база", "05.10.2026") == (
-        "Локальная база  \n05.10.2026"
+        "Локальная база  \n`05.10.2026`"
     )
 
 
