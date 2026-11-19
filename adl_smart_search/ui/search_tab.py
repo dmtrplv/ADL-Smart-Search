@@ -8,10 +8,12 @@
 
 import hashlib
 import html
+import json
 import logging
 import os
 import re
 import unicodedata
+import uuid
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -94,6 +96,235 @@ setTimeout(() => {
     const prev = parseInt(box.dataset.chatMsgCount || '-1', 10);
     if (prev < 0 || count !== prev) box.scrollTop = box.scrollHeight;
     box.dataset.chatMsgCount = String(count);
+  } catch (e) {}
+}, 100);
+</script>
+"""
+
+# История запросов: выпадающий список прямо под полем ввода.
+# Нативный <datalist> в Chromium ставит попап не по левому краю, поэтому
+# рисуем свой маленький список, привязанный к границам input.
+_QUERY_HISTORY_JS = """
+<style>html,body{margin:0;padding:0;height:0;overflow:hidden}</style>
+<script>
+setTimeout(() => {
+  try {
+    const doc = window.parent.document;
+    const win = doc.defaultView || window.parent;
+    // Поле ищем заново при каждом событии: Streamlit может пересоздать input
+    // после перерисовки, и ссылка на старый элемент становится мёртвой.
+    const field = () => doc.querySelector('.st-key-__PREFIX___query input')
+      || doc.querySelector('input[aria-label="Запрос"]');
+    if (!field()) return;
+    const values = __VALUES__;
+    const oldDatalist = doc.getElementById('adl-query-history-__PREFIX__');
+    if (oldDatalist) oldDatalist.remove();
+
+    win.__adlHistoryState = win.__adlHistoryState || {};
+    const state = win.__adlHistoryState['__PREFIX__']
+      || (win.__adlHistoryState['__PREFIX__'] = {});
+    // Номер инъекции защищает от старых iframe-инъекций, которые догружаются
+    // позже новых. Токен сбрасывает счётчик при перезапуске сессии.
+    if (state.token !== '__TOKEN__') {
+      state.token = '__TOKEN__';
+      state.seq = 0;
+    }
+    const mySeq = __SEQ__;
+    if (state.seq && mySeq < state.seq) return;
+    state.seq = mySeq;
+    state.field = field;
+    state.values = values;
+
+    // Ищем первый непрозрачный фон вверх по дереву — это фон поля в текущей теме.
+    const isTransparent = c => !c || c === 'transparent'
+      || /^rgba\\(0,\\s*0,\\s*0,\\s*0\\)$/.test(c);
+    const withAlpha = (c, a) => {
+      const m = /^rgba?\\(([^)]+)\\)$/.exec(c || '');
+      if (!m) return 'rgba(128,128,128,' + a + ')';
+      const p = m[1].split(',').map(s => s.trim());
+      return 'rgba(' + p[0] + ',' + p[1] + ',' + p[2] + ',' + a + ')';
+    };
+    state.colors = inp => {
+      let bg = '';
+      let node = inp;
+      while (node) {
+        const c = win.getComputedStyle(node).backgroundColor;
+        if (!isTransparent(c)) { bg = c; break; }
+        node = node.parentElement;
+      }
+      if (!bg) bg = win.getComputedStyle(doc.body).backgroundColor;
+      return { bg, color: win.getComputedStyle(inp).color || '' };
+    };
+
+    if (state.menu && !state.menu.isConnected) state.menu = null;
+    if (!state.menu) {
+      const menuId = 'adl-query-history-menu-__PREFIX__';
+      const existing = doc.getElementById(menuId);
+      if (existing) existing.remove();
+      const menu = doc.createElement('div');
+      menu.id = menuId;
+      // Цвета берём не из темы Streamlit, а из вычисленных стилей самого поля:
+      // так список совпадает с темой и не зависит от имён CSS-переменных.
+      menu.style.cssText = [
+        'position:fixed', 'display:none', 'z-index:1000000',
+        'box-sizing:border-box', 'max-height:280px', 'overflow-y:auto',
+        'padding:4px', 'border-radius:8px',
+        'border:1px solid rgba(128,128,128,.35)',
+        'box-shadow:0 8px 24px rgba(0,0,0,.18)',
+        "font-family:inherit", 'font-size:.875rem'
+      ].join(';');
+      doc.body.appendChild(menu);
+      state.menu = menu;
+    }
+
+    state.hide = () => { state.menu.style.display = 'none'; };
+    // Позицию считаем отдельно: она нужна и при открытии, и при прокрутке.
+    state.place = inp => {
+      const rect = inp.getBoundingClientRect();
+      state.menu.style.left = rect.left + 'px';
+      state.menu.style.top = (rect.bottom + 4) + 'px';
+      state.menu.style.width = rect.width + 'px';
+    };
+    state.render = () => {
+      const inp = state.field();
+      const menu = state.menu;
+      if (!inp || doc.activeElement !== inp) { state.hide(); return; }
+      // Клик по подписи «Запрос» фокусирует поле через label[for]; чтобы список
+      // не открывался сразу после клика мимо, коротко подавляем показ.
+      if (state.suppressUntil && Date.now() < state.suppressUntil) {
+        state.hide();
+        return;
+      }
+      const q = (inp.value || '').trim().toLowerCase();
+      const items = (state.values || [])
+        .filter(v => !q || String(v).toLowerCase().includes(q))
+        .slice(0, 10);
+      if (!items.length) { state.hide(); return; }
+
+      const colors = state.colors(inp);
+      if (colors.bg) menu.style.background = colors.bg;
+      if (colors.color) menu.style.color = colors.color;
+      state.hoverBg = withAlpha(colors.color, 0.12);
+      state.place(inp);
+      menu.innerHTML = '';
+      for (const value of items) {
+        const row = doc.createElement('div');
+        row.textContent = value;
+        row.style.cssText = [
+          'padding:7px 9px', 'border-radius:5px', 'cursor:pointer',
+          'white-space:nowrap', 'overflow:hidden', 'text-overflow:ellipsis'
+        ].join(';');
+        row.addEventListener('mouseenter', () => {
+          row.style.background = state.hoverBg || 'rgba(128,128,128,.18)';
+        });
+        row.addEventListener('mouseleave', () => {
+          row.style.background = 'transparent';
+        });
+        row.addEventListener('mousedown', e => e.preventDefault());
+        row.addEventListener('click', () => {
+          const target = state.field() || inp;
+          const setter = Object.getOwnPropertyDescriptor(
+            doc.defaultView.HTMLInputElement.prototype, 'value'
+          ).set;
+          setter.call(target, value);
+          target.dispatchEvent(new Event('input', { bubbles: true }));
+          target.dispatchEvent(new Event('change', { bubbles: true }));
+          state.hide();
+          target.focus();
+        });
+        menu.appendChild(row);
+      }
+      menu.style.display = 'block';
+    };
+
+    const isField = node => {
+      const inp = state.field();
+      return !!inp && (node === inp || inp.contains(node));
+    };
+
+    // Слушатели живут на документе, а не на самом поле: после перерисовки
+    // Streamlit может заменить input, и обработчики на нём терялись — список
+    // переставал открываться до переключения вкладок. Прошлый набор снимаем.
+    win.__adlHistoryListeners = win.__adlHistoryListeners || {};
+    for (const [target, type, fn, capture] of
+      win.__adlHistoryListeners['__PREFIX__'] || []) {
+      target.removeEventListener(type, fn, capture);
+    }
+
+    // Список позиционируется фиксированно, поэтому при прокрутке страницы его
+    // нужно пересчитывать от поля, иначе он «отрывается» и висит на месте.
+    let placeQueued = false;
+    const keepPlaced = () => {
+      if (placeQueued) return;
+      placeQueued = true;
+      try {
+        win.requestAnimationFrame(() => {
+          placeQueued = false;
+          const states = win.__adlHistoryState || {};
+          for (const key of Object.keys(states)) {
+            const s = states[key];
+            if (!s || !s.menu || s.menu.style.display !== 'block') continue;
+            const inp = s.field && s.field();
+            if (!inp) { s.hide(); continue; }
+            const rect = inp.getBoundingClientRect();
+            if (rect.bottom < 0 || rect.top > win.innerHeight) { s.hide(); continue; }
+            s.place(inp);
+          }
+        });
+      } catch (err) { placeQueued = false; }
+    };
+
+    const listeners = [
+      [doc, 'focusin', e => {
+        if (!isField(e.target)) return;
+        state.render();
+        try { win.requestAnimationFrame(() => state.render()); } catch (err) {}
+      }, true],
+      [doc, 'click', e => {
+        if (isField(e.target)) state.render();
+      }, true],
+      [doc, 'input', e => {
+        if (!isField(e.target)) return;
+        state.suppressUntil = 0;
+        state.render();
+      }, true],
+      [doc, 'focusout', e => {
+        if (!isField(e.target)) return;
+        setTimeout(() => {
+          if (!isField(doc.activeElement)) state.hide();
+        }, 120);
+      }, true],
+      [doc, 'keydown', e => {
+        if (e.key === 'Escape' && isField(e.target)) state.hide();
+      }, true],
+      // Клик мимо поля и списка закрывает выпадашку.
+      [doc, 'pointerdown', e => {
+        const states = win.__adlHistoryState || {};
+        for (const key of Object.keys(states)) {
+          const s = states[key];
+          if (!s || !s.menu || !s.field) continue;
+          const inp = s.field();
+          if (!inp) { s.hide(); continue; }
+          const target = e.target;
+          if (target === inp || inp.contains(target)) {
+            s.suppressUntil = 0;
+            continue;
+          }
+          if (s.menu.contains(target)) continue;
+          s.hide();
+          // Клик мог попасть в подпись «Запрос»: она связана с полем через
+          // label[for] и сфокусирует input, что иначе открыло бы список снова.
+          s.suppressUntil = Date.now() + 300;
+        }
+      }, true],
+      [win, 'scroll', keepPlaced, true],
+      [win, 'resize', keepPlaced],
+    ];
+    for (const [target, type, fn, capture] of listeners) {
+      target.addEventListener(type, fn, capture);
+    }
+    win.__adlHistoryListeners['__PREFIX__'] = listeners;
+    state.render();
   } catch (e) {}
 }, 100);
 </script>
@@ -841,6 +1072,23 @@ def _clear_expand_term_widgets(prefix: str, terms) -> None:
         st.session_state.pop(f"{prefix}_expand_term_{term}", None)
 
 
+def _history_with_query(history, query: str) -> list[str]:
+    """Добавляет запрос в начало истории: без дублей, максимум 10."""
+    q = (query or "").strip()
+    if not q:
+        return list(history or [])[:10]
+    out = [h for h in (history or []) if str(h).casefold() != q.casefold()]
+    out.insert(0, q)
+    return out[:10]
+
+
+def _remember_query(prefix: str, query: str) -> None:
+    key = f"{prefix}_query_history"
+    st.session_state[key] = _history_with_query(
+        st.session_state.get(key) or [], query
+    )
+
+
 def _expand_base_vocab() -> set[str]:
     """Словарь токенов обоих индексов: архетипы + поля."""
     vocab: set[str] = set()
@@ -891,6 +1139,7 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
     st.session_state.setdefault(f"{prefix}_expand_last_kind", "")
     st.session_state.setdefault(f"{prefix}_expand_results", False)
     st.session_state.setdefault(f"{prefix}_expand_open", False)
+    st.session_state.setdefault(f"{prefix}_query_history", [])
     st.session_state.setdefault(f"{prefix}_query_en", "")
     # Текст запроса храним отдельно: состояние виджета в форме очищается,
     # когда вкладка не рендерится (переключение на «Поля» и обратно).
@@ -915,13 +1164,20 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
     with st.form(f"{prefix}_search_form", clear_on_submit=False, border=False):
         q1, q2 = st.columns([6, 1], vertical_alignment="bottom")
         with q1:
+            query_key = f"{prefix}_query"
+            # Восстанавливаем текст после переключения вкладки: форма очищает
+            # состояние виджета, но сохранённый запрос остаётся в _query_saved.
+            if query_key not in st.session_state:
+                st.session_state[query_key] = st.session_state.get(
+                    f"{prefix}_query_saved", ""
+                )
             query = st.text_input(
                 "Запрос",
-                value=st.session_state.get(f"{prefix}_query_saved", ""),
                 help=spec.query_help,
-                key=f"{prefix}_query",
+                key=query_key,
                 autocomplete="off",
             )
+            query = query or ""
         with q2:
             run_search = st.form_submit_button("Искать", use_container_width=True)
 
@@ -1097,9 +1353,29 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
         height=1,
     )
 
-    query = st.session_state.get(f"{prefix}_query", "")
+    query = st.session_state.get(f"{prefix}_query") or ""
     if run_search or find_expand:
         st.session_state[f"{prefix}_query_saved"] = query
+    if run_search and query.strip():
+        _remember_query(prefix, query)
+
+    history = list(st.session_state.get(f"{prefix}_query_history") or [])[:10]
+    history_json = json.dumps(history, ensure_ascii=False).replace("</", "<\\/")
+    if "_query_history_token" not in st.session_state:
+        st.session_state["_query_history_token"] = uuid.uuid4().hex
+    st.session_state["_query_history_seq"] = int(
+        st.session_state.get("_query_history_seq") or 0
+    ) + 1
+    history_seq = st.session_state["_query_history_seq"]
+    st.iframe(
+        _QUERY_HISTORY_JS.replace("__PREFIX__", prefix)
+        .replace("__TOKEN__", st.session_state["_query_history_token"])
+        .replace("__SEQ__", str(history_seq))
+        .replace("__VALUES__", history_json)
+        + f"\n<!-- {prefix}-{history_seq} -->",
+        height=1,
+    )
+
     short_token_hint(query, vocab=st.session_state.get(spec.vocab_key), dev_mode=ctx.dev_mode)
 
     saved_filter_key = f"{spec.filter_key}_saved"
