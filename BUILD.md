@@ -77,9 +77,9 @@
 При первом запуске exe проверяет `C:\emiastemplates\Soft\ADL Smart Search`.
 Если папки нет, приложение предлагает выбрать корень репозитория `emiastemplates`
 через **«Обзор»**; путь внутри репозитория (`Soft\ADL Smart Search`) уже известен.
-Автопоиска по диску нет. В `bootstrap.json` сохраняются `repo_root`
-(корень Git-репозитория) и `data_root` (папка с `config/` и `data/`);
-обновления их не перезаписывают.
+Автопоиска по диску нет. В `bootstrap.json` сохраняется только `repo_root`
+(корень Git-репозитория); папка `data_root` с `config/` и `data/` вычисляется
+при старте. Обновления эти данные не перезаписывают.
 
 При запуске из папки проекта (`streamlit run app.py`, `python launcher.py`) пути
 другие: `<project>/data` + `<project>/config`, а bootstrap/логи — в
@@ -139,13 +139,13 @@
 python scripts/make_release.py `
   --dist dist\ADL-Smart-Search-<дата> `
   --full-zip dist\ADL-Smart-Search-<дата>.zip `
-  --version 0.9.0 `
+  --version 1.0.0 `
   --channel stable `
   --github-repo dmtrplv/ADL-Smart-Search
 ```
 
-Загрузите `update/assets/*` в GitHub Release с тегом `v0.9.0`, затем закоммитьте
-`update/stable.json` и `update/manifests/0.9.0.json`.
+Загрузите `update/assets/*` в GitHub Release с тегом `v1.0.0`, затем закоммитьте
+`update/stable.json` и `update/manifests/1.0.0.json`.
 
 ## Передача пользователю
 

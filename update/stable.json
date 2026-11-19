@@ -1,9 +1,9 @@
 {
   "schema": 1,
-  "version": "0.9.1",
+  "version": "1.0.0",
   "channel": "stable",
-  "published_at": "2026-11-12T12:25:07+00:00",
-  "notes": "# ADL Smart Search 0.9.1\n\nХот-фикс выбора провайдера ИИ.\n\n- Переключатель «ГигаЧат / МЭШ.ИИ.Хаб» теперь реально меняет провайдера в exe.\n- При запуске по умолчанию активен МЭШ.ИИ.Хаб.\n- В dev-панели редактируются настройки обоих провайдеров.\n- `api_kind` больше не хранится в конфиге: выбор действует только в текущей сессии.\n- Настройки GigaChat и МЭШ.ИИ.Хаб остаются в `llm.json`.",
+  "published_at": "2026-11-19T14:16:07+00:00",
+  "notes": "# ADL Smart Search 1.0.0\n\nПервый стабильный релиз. Главное по сравнению с 0.9.1 — заметно более простая и предсказуемая работа с настройками, обновлённый dev-режим и доработки поиска.\n\n## Настройки и dev-режим\n\n- Убраны пользовательские overrides. Теперь есть ровно один источник настроек — `config/` проекта при запуске из Python или подключённого репозитория при запуске exe. Наружу вынесен только путь к репозиторию.\n- Dev-панель работает по модели «черновик + явное сохранение»: изменения применяются сразу, но в `settings.json`, `llm.json` и `prompts.json` попадают только по кнопке «Сохранить». Добавлены общие «Сохранить всё» и «Сбросить всё», у каждого блока есть свои «Сохранить» и «Сбросить».\n- В dev-режиме exe кнопки сохранения пишут в тот же `config/` репозитория, который читают пользователи. Устаревшие `*.overrides.json` удаляются при старте.\n- Явный переключатель **«Размышления (thinking)»** показывается только для моделей, которые его поддерживают.\n- Бюджет контекста для ИИ перенесён в блок «LLM» и хранится в `config/llm.json`.\n- Индикатор несохранённых изменений стал заметным — красным.\n- Текстовые поля промптов подстраиваются по высоте под содержимое.\n\n## Поиск и ИИ\n\n- История запросов: до 10 последних запросов в выпадающем списке, отдельно для архетипов и полей.\n- Добавлен бонус за точное словосочетание и подсветка фраз в результатах.\n- Лексическое совпадение стало строже: общие префиксы слов больше не дают ложных срабатываний.\n- Расширения запроса фильтруются по словарю базы: в подсказках остаются только термины, которые реально есть в индексе.\n- Улучшена работа с CKM: перевод контекста по запросу, спиннер во время перевода, аккуратные подписи источников и дат индексации.\n- Дубликаты local + CKM схлопываются, версии архетипов упорядочиваются предсказуемее.\n- В выдаче полей показывается контекст архетипа.\n\n## Интерфейс и стабильность\n\n- Обновлён общий вид чата и сайдбара, добавлена иконка приложения.\n- Даты сборки индексов отображаются без мигания и не перегружают карточки.\n- Улучшены подсказки по пустым результатам, ошибкам и коротким токенам.\n- Расширено тестовое покрытие: обновление приложения, первый запуск, dev-настройки, промпты, архивы обновлений и откат при ошибке.\n\n## Обновление\n\nОбновление с 0.9.1 поддерживается автоматически: приложение увидит версию 1.0.0, скачает дельту или полный архив и перезапустится. Данные и `config/` при обновлении не затрагиваются.",
   "managed_roots": [
     "ADL-Smart-Search.exe",
     "ADL-Smart-Search-Updater.exe",
@@ -15,13 +15,13 @@
   "files": [
     {
       "path": "ADL-Smart-Search-Updater.exe",
-      "size": 11128717,
-      "sha256": "ee8b0d08cc1e98b33756fed33dfb3e5efceb565e355175b1d9b71e7f63135c27"
+      "size": 11115825,
+      "sha256": "b0e81f8762bb0611f390c13d96d77195e16925b10f1f1e90e29b2b2c2a57169d"
     },
     {
       "path": "ADL-Smart-Search.exe",
-      "size": 73426325,
-      "sha256": "31aeca5bf0f96390a9d4d028a88cfff8664b5cdb22ed6ac30e54402b50444cfc"
+      "size": 73408954,
+      "sha256": "da4637f427ed53dfe8d889452885baf6e32b28a388c66212e5bfe35782406057"
     },
     {
       "path": "_internal/81d243bd2c585b0f4821__mypyc.cp312-win_amd64.pyd",
@@ -65,8 +65,8 @@
     },
     {
       "path": "_internal/README.md",
-      "size": 53843,
-      "sha256": "a8203da7848b52d5c038084bb026f16a532fa35697abdad40f175ee68fdf49c9"
+      "size": 60352,
+      "sha256": "ac81ffb3fb5dee72e80168921dbdb2554ce3bc77812a4c0bbf8f6427db9485d6"
     },
     {
       "path": "_internal/VCOMP140.DLL",
@@ -161,27 +161,42 @@
     {
       "path": "_internal/adl_smart_search/__init__.py",
       "size": 230,
-      "sha256": "c6ce7b58ee9a1e08a16d786e44412fb02e897fcafbd8286088f71eb801f532b8"
+      "sha256": "5e8caaedcaeb8f3f1e6780ed8b8176a3c3794391ad206adebb49b52d22b46394"
     },
     {
       "path": "_internal/adl_smart_search/adl_parser.py",
-      "size": 24717,
-      "sha256": "718c1488682d413f8ac8a5af03a1171509c6088de33491e19f3bd2a006ae78d3"
+      "size": 25016,
+      "sha256": "923409efdd0caef8f47e64d398e20a7dcdcc558709bf9cc5cb9602e4e0fbd715"
     },
     {
       "path": "_internal/adl_smart_search/app_paths.py",
-      "size": 14974,
-      "sha256": "1949e307c80e46ca8b1920e1858e9c753c429d5a49cd123a132798ef94d3937d"
+      "size": 14341,
+      "sha256": "92485e6b8652b5aaea4a00907f9cb1f2c1a88a6a8628a34195ee60e2e59cc1e0"
+    },
+    {
+      "path": "_internal/adl_smart_search/assets/adl_search.ico",
+      "size": 45928,
+      "sha256": "8a29beae3c3d0a55c0548b0352dd715be3ae3d9ad520897844a744d7b5fdca14"
+    },
+    {
+      "path": "_internal/adl_smart_search/assets/adl_search.png",
+      "size": 47986,
+      "sha256": "24d9c44279d19567ea7c6dfbaeebaaab4ef17ad40a96edf1852a0dfd3ec61a2b"
+    },
+    {
+      "path": "_internal/adl_smart_search/assets/adl_search.svg",
+      "size": 473,
+      "sha256": "69ed598c3250ee38c03e5e120b4d661b0d09632680c61b27023c5a08cda74d64"
     },
     {
       "path": "_internal/adl_smart_search/config.py",
-      "size": 9575,
-      "sha256": "b973a806d76ef6b3cf92bdb9a4a8375fa1d9d8b150e40b238f7adc5f6003d011"
+      "size": 9670,
+      "sha256": "bec7152a6e5f95429101cd4a895182b3f8156b7e5de2a4c93c415c55a39b58c4"
     },
     {
       "path": "_internal/adl_smart_search/context_builder.py",
-      "size": 13992,
-      "sha256": "5a4ae7fc46a2072eed9bca3386cdc9dd5c03a3184030bf2f1f217392e7066927"
+      "size": 19969,
+      "sha256": "9ffa54753b0f111074a12b90b697fe4485f2bbe4ab4dd18bc4401ae32e47fd08"
     },
     {
       "path": "_internal/adl_smart_search/corp_catalog.py",
@@ -195,13 +210,18 @@
     },
     {
       "path": "_internal/adl_smart_search/env_file.py",
-      "size": 7375,
-      "sha256": "86623ba814ebe67968d725688235519f570610415db59587c266a00bc2111eee"
+      "size": 7294,
+      "sha256": "68686a0ef5a3a04a5ae76548fa3ecb478e33be0605cebafdf0a2c4fb275432f5"
     },
     {
       "path": "_internal/adl_smart_search/index_build_info.py",
       "size": 4566,
       "sha256": "76ef9984665b2f675981f88f14ad795514424ecb2f7f5ebee4d8477cb71e947d"
+    },
+    {
+      "path": "_internal/adl_smart_search/index_cache.py",
+      "size": 3720,
+      "sha256": "e27e6625aca022d797ed6785183aa6c7e459600ee6bfd681128fc40cf58c42ca"
     },
     {
       "path": "_internal/adl_smart_search/index_files.py",
@@ -211,7 +231,7 @@
     {
       "path": "_internal/adl_smart_search/index_store.py",
       "size": 25040,
-      "sha256": "40b18eda3aa21f71c7a772ec2e6d5fd4a777c910136d7291a8f884771a0b2e99"
+      "sha256": "f54ebbd713a69371db663f8d8ad8c5126b8c67a8f2d1c240e7ed3f349e80233b"
     },
     {
       "path": "_internal/adl_smart_search/llm.py",
@@ -230,13 +250,13 @@
     },
     {
       "path": "_internal/adl_smart_search/prompts.py",
-      "size": 7628,
-      "sha256": "fbb1d757597aa0a1ae3b72567ea6496725db0c8596c8c020eb42b8e9263c5b0d"
+      "size": 8369,
+      "sha256": "5d352bd1941e32db88c05299b2a459c232601005401a593de695a3c89d172195"
     },
     {
       "path": "_internal/adl_smart_search/query_expand.py",
-      "size": 9549,
-      "sha256": "4a3e24d4b3967e07066746c273c4a99cc4a5a1a787881bc80c3bf417046e9ae1"
+      "size": 10974,
+      "sha256": "6f5b5ed1c7bfd3baeb8946ae63749a465a63aa5b2c63f98bb7ed9140085fcb8b"
     },
     {
       "path": "_internal/adl_smart_search/rag.py",
@@ -250,13 +270,13 @@
     },
     {
       "path": "_internal/adl_smart_search/scoring.py",
-      "size": 25967,
-      "sha256": "64b95362b6e9d23391c1cf0e013b0bbef0c380db87a15d7f498ccb28c111387b"
+      "size": 35519,
+      "sha256": "02275322ae46bb47e9aab21bc342a49cc83ba22bffbbdc47b2cc44a6f25baa53"
     },
     {
       "path": "_internal/adl_smart_search/sources.py",
-      "size": 7164,
-      "sha256": "35ceba316aa592232c08cf58188cb58b073bc23f30dc0d3db005340fe760717e"
+      "size": 7311,
+      "sha256": "a86f7eb9b91c1631280f15eeaf05140da4e4728b5c2e659bd11475b913a319db"
     },
     {
       "path": "_internal/adl_smart_search/ui/__init__.py",
@@ -265,8 +285,8 @@
     },
     {
       "path": "_internal/adl_smart_search/ui/context.py",
-      "size": 4394,
-      "sha256": "947f78e4ae89f6901945001fac30eb520edc52cab9b77c07fbe411078264b889"
+      "size": 4419,
+      "sha256": "3fa8a32aee8cb08e89aabc739a8d6e8c6c9fa2057aaad841c4674f9fb1f41401"
     },
     {
       "path": "_internal/adl_smart_search/ui/dialog.py",
@@ -275,38 +295,38 @@
     },
     {
       "path": "_internal/adl_smart_search/ui/indexing.py",
-      "size": 5022,
-      "sha256": "d1264019e93de3742013812515a15bf2c57b65735f812cfc65aeb28e974195ce"
+      "size": 4617,
+      "sha256": "c86373ea31625ace3512161283d564be8254d38de3ff167ac4e93d5b6cce540b"
     },
     {
       "path": "_internal/adl_smart_search/ui/llm_provider.py",
-      "size": 24219,
-      "sha256": "95d98760ff5a03e6c3764268f9d1d15e86abfeaa4cebec09c35e7ca367e50d4f"
+      "size": 25722,
+      "sha256": "ad993fe6a97a28d5793284a7527dc5c07d80e8c7bd5a214b72f7b8bbb00b4f67"
     },
     {
       "path": "_internal/adl_smart_search/ui/search_tab.py",
-      "size": 67853,
-      "sha256": "5d12f9916a83dbca558289b03e68aa8c785b5314263e3d7ceb9a2b0e7662d6a9"
+      "size": 95839,
+      "sha256": "a6f279647a22aa42109191c401a7cf1f479f8ee94db1cb6d2b29e514751f7bac"
     },
     {
       "path": "_internal/adl_smart_search/ui/settings.py",
-      "size": 29898,
-      "sha256": "ea3d7f94a1f3664094e605a632752b2c90c10bab3f65318b8d476de3ea538e05"
+      "size": 25224,
+      "sha256": "5861443d2835a85d51bf8014961016046917353a120bdf14ae3333ae9d43df3d"
     },
     {
       "path": "_internal/adl_smart_search/ui/sidebar.py",
-      "size": 91700,
-      "sha256": "d0ab8ebc6c930e4b9b9bf54239a99ff76a49beed2596a7f9131107e44b5ed7ad"
+      "size": 103740,
+      "sha256": "2572648378abca1b709dd9ff3c9472fe07ceb94ef0290ae0fb53d97eabe7486f"
     },
     {
       "path": "_internal/adl_smart_search/ui/tab_archetypes.py",
-      "size": 4331,
-      "sha256": "eb9784a2da09e3784b920af4bae79b540e095ebe7fa041a9e8926531ef640790"
+      "size": 6787,
+      "sha256": "1fc302c0b8667fb2a6ecb53fd1b446b6e9b5d59e0619737fcc174f19689007d4"
     },
     {
       "path": "_internal/adl_smart_search/ui/tab_fields.py",
-      "size": 7399,
-      "sha256": "65245e84bde852929753f5c54ee45668b94fe1261d37820c4d9bc87159524e1e"
+      "size": 11247,
+      "sha256": "d1566361ed09c1e95e522d6ba67e6a0c5f363ae810be4c0c606beff3e29f3ae0"
     },
     {
       "path": "_internal/adl_smart_search/ui/utils.py",
@@ -370,8 +390,8 @@
     },
     {
       "path": "_internal/app.py",
-      "size": 24144,
-      "sha256": "62c289d9cbf15ee9bcbabb66ce2bc795dbad33d9da199e1fafb4a31290d1ca42"
+      "size": 22442,
+      "sha256": "acf8ab9e09c5eceac4c300a044ee0aaa8c63cb1c82a3eb95ed5789e044305ba0"
     },
     {
       "path": "_internal/attrs-26.1.0.dist-info/INSTALLER",
@@ -401,7 +421,7 @@
     {
       "path": "_internal/base_library.zip",
       "size": 1333717,
-      "sha256": "d3fabf05af910ad5dafafc2e7d3db8db7fdc90e6bd989d36b26cac01569535a4"
+      "sha256": "495b16789300024224f75a422ab9ea1f5816f270e290c1af8f705da32129c2c1"
     },
     {
       "path": "_internal/certifi/cacert.pem",
@@ -7805,8 +7825,8 @@
     },
     {
       "path": "_internal/streamlit/static/favicon.png",
-      "size": 1019,
-      "sha256": "89fe5c560c3b6b3c4a3af5791691a2c606bb24b9f6deb7e71dccb509d588d7e1"
+      "size": 47986,
+      "sha256": "24d9c44279d19567ea7c6dfbaeebaaab4ef17ad40a96edf1852a0dfd3ec61a2b"
     },
     {
       "path": "_internal/streamlit/static/index.html",
@@ -33061,20 +33081,25 @@
     {
       "path": "version.json",
       "size": 73,
-      "sha256": "423a445d36a1ae7349c5a4407d3cb54f1f97151fd55ab7dc97941c4cbee54f62"
+      "sha256": "d0f39b8286ffaaa4d53293b55c22551de09ad691ce2c724d5faef779974bdafd"
     }
   ],
   "assets": {
     "full": {
-      "url": "https://github.com/dmtrplv/ADL-Smart-Search/releases/download/v0.9.1/ADL-Smart-Search-0.9.1-full.zip",
-      "size": 733606903,
-      "sha256": "009a13894c3f35028a085feece8d062ee7ab3a130b59be86277c407446b1392d"
+      "url": "https://github.com/dmtrplv/ADL-Smart-Search/releases/download/v1.0.0/ADL-Smart-Search-1.0.0-full.zip",
+      "size": 733758095,
+      "sha256": "87c49146b44ee88c0db83ed60c238fdfaab02e3efc9a81f3a17d9724d17a4d5f"
     },
     "deltas": {
       "0.9.0": {
-        "url": "https://github.com/dmtrplv/ADL-Smart-Search/releases/download/v0.9.1/delta-0.9.0-to-0.9.1.zip",
-        "size": 84362479,
-        "sha256": "cfeb28e703a09db8f11dbc2091b6dfcaf50b4032d550ed031a3fe190b386b190"
+        "url": "https://github.com/dmtrplv/ADL-Smart-Search/releases/download/v1.0.0/delta-0.9.0-to-1.0.0.zip",
+        "size": 84578632,
+        "sha256": "a44bdd494dae9f5b06b2d8e6feabe230024ef04942ff8807d8ec45b25a4bd1b3"
+      },
+      "0.9.1": {
+        "url": "https://github.com/dmtrplv/ADL-Smart-Search/releases/download/v1.0.0/delta-0.9.1-to-1.0.0.zip",
+        "size": 84578632,
+        "sha256": "a44bdd494dae9f5b06b2d8e6feabe230024ef04942ff8807d8ec45b25a4bd1b3"
       }
     }
   }
