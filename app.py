@@ -341,9 +341,6 @@ def main():
             help="Остановить локальный сервер. Вкладку браузера нужно закрыть вручную.",
         ):
             _shutdown_app()
-    if dev_mode:
-        st.session_state["dev_mode_used"] = True
-
     _render_update_notice(paths)
 
     logger.info("start: dev=%s", dev_mode)
@@ -351,14 +348,12 @@ def main():
     settings = load_effective_settings(cfg.config_dir, cfg.user_config_dir)
     # Пользовательские overrides важнее базового config/ и .env: применяем их до инициализации сессии.
     apply_search_settings(cfg, settings)
-    # Бюджеты контекста читаются вкладками из session_state (как dev-виджеты).
-    # Пока пользователь не менял их в этой сессии, берём значение из конфига:
-    # так правка settings.json подхватывается сразу, а устаревшая сессия не
-    # перетирает файл старым значением.
-    _dirty_budgets = st.session_state.get("_context_budget_dirty") or set()
+    # Бюджеты контекста читаются вкладками из session_state (как dev-виджеты),
+    # поэтому заполняем их и в пользовательском режиме.
     for _budget_key in CONTEXT_BUDGET_KEYS:
-        if _budget_key not in _dirty_budgets:
-            st.session_state[_budget_key] = int(getattr(cfg, _budget_key, 10000))
+        st.session_state.setdefault(
+            _budget_key, int(getattr(cfg, _budget_key, 10000))
+        )
     # Выбор провайдера ИИ больше не сохраняется за пользователем: при запуске
     # всегда действует значение из config/llm.json (по умолчанию МЭШ.ИИ.Хаб).
     try:

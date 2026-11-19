@@ -25,29 +25,55 @@ def test_chat_provider_defaults_to_corp(tmp_path, monkeypatch):
     assert at.session_state["api_kind"] == "corp_async"
 
 
-def test_stale_session_does_not_overwrite_context_budget(tmp_path, monkeypatch):
-    """Правка settings.json подхватывается, а старая сессия её не перетирает."""
+def test_dev_edit_does_not_write_config_until_save(tmp_path, monkeypatch):
+    """Изменения живут в сессии: без «Сохранить» файл не появляется."""
+    _prepare(tmp_path, monkeypatch)
+    at = AppTest.from_file(APP, default_timeout=120).run()
+
+    at.toggle[0].set_value(True).run()
+    next(s for s in at.slider if s.label == "Вес точного совпадения").set_value(1.2).run()
+
+    assert at.session_state["keyword_bonus"] == 1.2
+    assert not (tmp_path / "config" / "settings.json").exists()
+
+
+def test_save_search_block_writes_config(tmp_path, monkeypatch):
+    _prepare(tmp_path, monkeypatch)
+    at = AppTest.from_file(APP, default_timeout=120).run()
+
+    at.toggle[0].set_value(True).run()
+    next(s for s in at.slider if s.label == "Вес точного совпадения").set_value(1.2).run()
+    assert any("несохранённые" in caption.value for caption in at.caption)
+
+    at.button(key="save_search_settings_btn").click().run()
+
+    assert not any("несохранённые" in caption.value for caption in at.caption)
+    saved = json.loads(
+        (tmp_path / "config" / "settings.json").read_text(encoding="utf-8")
+    )
+    assert saved["keyword_bonus"] == 1.2
+    assert not (tmp_path / "local" / "config" / "settings.overrides.json").exists()
+
+
+def test_reset_search_block_restores_config_values(tmp_path, monkeypatch):
     _prepare(tmp_path, monkeypatch)
     config_dir = tmp_path / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
     (config_dir / "settings.json").write_text(
-        json.dumps(
-            {"context_tokens_archetypes": 10000, "context_tokens_fields": 10000}
-        ),
-        encoding="utf-8",
+        json.dumps({"keyword_bonus": 0.9}), encoding="utf-8"
     )
-
     at = AppTest.from_file(APP, default_timeout=120).run()
-    # Устаревшая сессия держит прежнее значение, но пользователь его не менял.
-    at.session_state["context_tokens_archetypes"] = 1000
-    at.run()
 
-    assert at.session_state["context_tokens_archetypes"] == 10000
+    at.toggle[0].set_value(True).run()
+    next(s for s in at.slider if s.label == "Вес точного совпадения").set_value(1.2).run()
+    at.button(key="reset_search_settings_btn").click().run()
+
+    assert at.session_state["keyword_bonus"] == 0.9
     saved = json.loads((config_dir / "settings.json").read_text(encoding="utf-8"))
-    assert saved["context_tokens_archetypes"] == 10000
+    assert saved["keyword_bonus"] == 0.9
 
 
-def test_dev_panel_saves_context_budget(tmp_path, monkeypatch):
+def test_context_budget_saved_via_button(tmp_path, monkeypatch):
     _prepare(tmp_path, monkeypatch)
     config_dir = tmp_path / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -55,24 +81,44 @@ def test_dev_panel_saves_context_budget(tmp_path, monkeypatch):
         json.dumps({"context_tokens_archetypes": 1000, "context_tokens_fields": 1000}),
         encoding="utf-8",
     )
-
     at = AppTest.from_file(APP, default_timeout=120).run()
+
     at.toggle[0].set_value(True).run()
     at.number_input(key="context_tokens_archetypes").set_value(10000).run()
+    at.button(key="save_search_settings_btn").click().run()
 
     saved = json.loads((config_dir / "settings.json").read_text(encoding="utf-8"))
     assert saved["context_tokens_archetypes"] == 10000
 
 
-def test_disabling_dev_mode_saves_last_edit(tmp_path, monkeypatch):
+def test_reset_search_to_factory_defaults(tmp_path, monkeypatch):
+    _prepare(tmp_path, monkeypatch)
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "settings.json").write_text(
+        json.dumps({"keyword_bonus": 0.9}), encoding="utf-8"
+    )
+    at = AppTest.from_file(APP, default_timeout=120).run()
+
+    at.toggle[0].set_value(True).run()
+    assert at.session_state["keyword_bonus"] == 0.9
+
+    at.button(key="reset_search_defaults_btn").click().run()
+
+    # Значение из кода, а не из конфига; файл не тронут и видно, что не сохранено.
+    assert at.session_state["keyword_bonus"] == 0.5
+    saved = json.loads((config_dir / "settings.json").read_text(encoding="utf-8"))
+    assert saved["keyword_bonus"] == 0.9
+    assert any("несохранённые" in caption.value for caption in at.caption)
+
+
+def test_save_llm_block_writes_config(tmp_path, monkeypatch):
     _prepare(tmp_path, monkeypatch)
     at = AppTest.from_file(APP, default_timeout=120).run()
 
     at.toggle[0].set_value(True).run()
     next(s for s in at.selectbox if s.label == "GigaChat model").set_value("GigaChat-2-Pro")
-
-    # Один прогон: изменили поле и сразу выключили dev-режим.
-    at.toggle[0].set_value(False).run()
+    at.button(key="save_llm_settings_btn").click().run()
 
     llm_file = tmp_path / "config" / "llm.json"
     assert llm_file.exists()
@@ -80,7 +126,7 @@ def test_disabling_dev_mode_saves_last_edit(tmp_path, monkeypatch):
     assert not (tmp_path / "local" / "config" / "llm.overrides.json").exists()
 
 
-def test_disabling_dev_mode_saves_enable_thinking_mode(tmp_path, monkeypatch):
+def test_save_llm_block_keeps_enable_thinking_mode(tmp_path, monkeypatch):
     _prepare(tmp_path, monkeypatch)
     config_dir = tmp_path / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -100,30 +146,13 @@ def test_disabling_dev_mode_saves_enable_thinking_mode(tmp_path, monkeypatch):
     at = AppTest.from_file(APP, default_timeout=120).run()
     at.toggle[0].set_value(True).run()
     next(s for s in at.selectbox if s.label == "Модель").set_value("Thinking Model").run()
-
-    at.toggle[0].set_value(False).run()
+    at.button(key="save_llm_settings_btn").click().run()
 
     llm_file = tmp_path / "config" / "llm.json"
     assert llm_file.exists()
     saved = json.loads(llm_file.read_text(encoding="utf-8"))
     assert saved["corp_use_enable_thinking"] is True
     assert saved["corp_enable_thinking"] is False
-
-
-def test_disabling_dev_mode_saves_last_search_edit(tmp_path, monkeypatch):
-    _prepare(tmp_path, monkeypatch)
-    at = AppTest.from_file(APP, default_timeout=120).run()
-
-    at.toggle[0].set_value(True).run()
-    next(s for s in at.slider if s.label == "Вес точного совпадения").set_value(1.2)
-
-    # Один прогон: изменили слайдер и сразу выключили dev-режим.
-    at.toggle[0].set_value(False).run()
-
-    settings_file = tmp_path / "config" / "settings.json"
-    assert settings_file.exists()
-    assert json.loads(settings_file.read_text(encoding="utf-8"))["keyword_bonus"] == 1.2
-    assert not (tmp_path / "local" / "config" / "settings.overrides.json").exists()
 
 
 def test_catalog_model_locks_model_fields_and_prefills_generation(tmp_path, monkeypatch):

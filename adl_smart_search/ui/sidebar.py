@@ -25,6 +25,7 @@ from adl_smart_search.prompts import (
     PROMPT_LABELS,
     PROMPT_PART_KEYS,
     PromptConfigError,
+    load_prompts,
     prompts_path,
     save_prompts,
 )
@@ -46,10 +47,13 @@ from adl_smart_search.ui.llm_provider import (
     selected_chat_provider,
 )
 from adl_smart_search.ui.settings import (
-    CONTEXT_BUDGET_KEYS,
     LLM_SETTINGS_TYPES,
+    LLM_UI_DEFAULTS,
     SEARCH_SETTINGS_TYPES,
     index_last_built_label,
+    load_effective_llm_settings,
+    load_effective_settings,
+    load_llm_settings,
     load_settings,
     reset_user_overrides,
     save_llm_settings,
@@ -1109,19 +1113,251 @@ def _state_from_config(cfg: AppConfig, settings: dict) -> SidebarState:
     )
 
 
-def _search_defaults(cfg: AppConfig) -> dict:
-    """Значения поиска по умолчанию (из кода/окружения, без settings.json)."""
+_BLOCK_INDEX_KEYS = ("adl_dir", "ckm_adl_dir")
+_LLM_UI_KEYS = ("corp_model_name", "corp_aux_model_name", "corp_context_window")
+_PROMPT_SESSION_KEYS = (
+    "system_prompt",
+    *(f"prompt_{key}" for key in PROMPT_PART_KEYS),
+)
+
+
+def _dev_flash(kind: str, text: str) -> None:
+    st.session_state["_dev_settings_msg"] = (kind, text)
+
+
+def _render_dev_flash() -> None:
+    data = st.session_state.pop("_dev_settings_msg", None)
+    if not data:
+        return
+    kind, text = data
+    if kind == "error":
+        st.error(text)
+    else:
+        st.success(text)
+
+
+def _user_config_dir(cfg: AppConfig) -> str:
+    return cfg.user_config_dir or local_config_dir()
+
+
+def _save_settings_block(
+    cfg: AppConfig, keys: tuple[str, ...], write_config: bool, message: str
+) -> None:
+    """Записывает ключи одного блока в settings.json (или только в overrides)."""
+    config_dir = cfg.config_dir or "."
+    payload = dict(load_settings(config_dir))
+    for key in keys:
+        if key in st.session_state:
+            payload[key] = st.session_state[key]
+    if write_config:
+        save_settings(config_dir, payload)
+    save_user_settings(
+        config_dir,
+        _user_config_dir(cfg),
+        {key: payload[key] for key in keys if key in payload},
+    )
+    _dev_flash("ok", message)
+
+
+def _save_llm_block(cfg: AppConfig, write_config: bool) -> None:
+    config_dir = cfg.config_dir or "."
+    payload = dict(load_llm_settings(config_dir))
+    for key in (*LLM_SETTINGS_TYPES, *_LLM_UI_KEYS):
+        if key in st.session_state:
+            payload[key] = st.session_state[key]
+    payload["corp_model_name"] = (
+        payload.get("corp_model_name") or LLM_UI_DEFAULTS["corp_model_name"]
+    )
+    payload["corp_aux_model_name"] = (
+        payload.get("corp_aux_model_name") or LLM_UI_DEFAULTS["corp_aux_model_name"]
+    )
+    payload["corp_context_window"] = (
+        int(payload.get("corp_context_window") or 0)
+        or LLM_UI_DEFAULTS["corp_context_window"]
+    )
+    if write_config:
+        save_llm_settings(config_dir, payload)
+    save_user_llm_settings(
+        config_dir,
+        _user_config_dir(cfg),
+        {
+            key: payload[key]
+            for key in (*LLM_SETTINGS_TYPES, *_LLM_UI_KEYS)
+            if key in payload
+        },
+    )
+    _dev_flash("ok", "Настройки LLM сохранены")
+
+
+def _save_prompts_block(cfg: AppConfig) -> None:
+    try:
+        save_prompts(cfg.config_dir or ".", prompts_from_session())
+    except PromptConfigError as e:
+        _dev_flash("error", str(e))
+        return
+    except Exception:
+        logger.exception("cannot save prompts")
+        _dev_flash("error", "Не удалось сохранить промпты.")
+        return
+    _dev_flash("ok", "Промпты сохранены")
+
+
+def _reset_settings_block(cfg: AppConfig, keys: tuple[str, ...], message: str) -> None:
+    """Сбрасывает черновик блока к значениям конфига (файл не меняется)."""
+    values = load_effective_settings(cfg.config_dir, cfg.user_config_dir)
+    for key in keys:
+        if key in values:
+            st.session_state[key] = values[key]
+            continue
+        default = getattr(cfg, key, None)
+        if default is None or default == "":
+            st.session_state.pop(key, None)
+        else:
+            st.session_state[key] = default
+    _dev_flash("ok", message)
+
+
+def _reset_llm_block(cfg: AppConfig) -> None:
+    values = load_effective_llm_settings(cfg.config_dir, cfg.user_config_dir)
+    for key in LLM_SETTINGS_TYPES:
+        if key in values:
+            st.session_state[key] = values[key]
+        else:
+            default = getattr(cfg, key, None)
+            if default is not None:
+                st.session_state[key] = default
+    for key in _LLM_UI_KEYS:
+        st.session_state[key] = values.get(key, LLM_UI_DEFAULTS[key])
+    _dev_flash("ok", "Настройки LLM сброшены к конфигу")
+
+
+def _reset_prompts_block(cfg: AppConfig) -> None:
+    try:
+        values = load_prompts(cfg.config_dir or ".")
+    except PromptConfigError as e:
+        _dev_flash("error", str(e))
+        return
+    st.session_state["system_prompt"] = values.get(
+        "system_prompt", st.session_state.get("system_prompt", "")
+    )
+    for key in PROMPT_PART_KEYS:
+        st.session_state[f"prompt_{key}"] = values.get(key, "")
+    _dev_flash("ok", "Промпты сброшены к конфигу")
+
+
+def _capture_baseline(keys) -> dict:
+    return {key: st.session_state.get(key) for key in keys}
+
+
+def _update_baseline(name: str, keys) -> None:
+    data = st.session_state.setdefault("_dev_baseline", {})
+    data[name] = _capture_baseline(keys)
+
+
+def _block_is_dirty(name: str, keys) -> bool:
+    data = st.session_state.get("_dev_baseline") or {}
+    base = data.get(name)
+    if base is None:
+        return False
+    for key in keys:
+        if key not in st.session_state:
+            continue
+        current = st.session_state.get(key)
+        if str(current) != str(base.get(key)):
+            return True
+    return False
+
+
+def _render_block_actions(
+    *,
+    label: str,
+    dirty: bool,
+    save_key: str,
+    reset_key: str,
+    on_save,
+    on_reset,
+    save_args: tuple,
+    reset_args: tuple,
+) -> None:
+    c1, c2 = st.columns(2)
+    with c1:
+        st.button(
+            "Сохранить",
+            key=save_key,
+            use_container_width=True,
+            on_click=on_save,
+            args=save_args,
+        )
+    with c2:
+        st.button(
+            "Сбросить",
+            key=reset_key,
+            use_container_width=True,
+            on_click=on_reset,
+            args=reset_args,
+        )
+    if dirty:
+        st.caption(f"• {label}: есть несохранённые изменения")
+
+
+def _save_search_action(cfg: AppConfig, write_config: bool) -> None:
+    _save_settings_block(
+        cfg, tuple(SEARCH_SETTINGS_TYPES), write_config, "Настройки поиска сохранены"
+    )
+    _update_baseline("search", tuple(SEARCH_SETTINGS_TYPES))
+
+
+def _save_index_action(cfg: AppConfig, write_config: bool) -> None:
+    _save_settings_block(cfg, _BLOCK_INDEX_KEYS, write_config, "Пути индексации сохранены")
+    _update_baseline("index", _BLOCK_INDEX_KEYS)
+
+
+def _save_all_action(cfg: AppConfig, write_config: bool) -> None:
+    _save_search_action(cfg, write_config)
+    _save_index_action(cfg, write_config)
+    _save_llm_block(cfg, write_config)
+    _update_baseline("llm", (*LLM_SETTINGS_TYPES, *_LLM_UI_KEYS))
+    _save_prompts_block(cfg)
+    _update_baseline("prompts", _PROMPT_SESSION_KEYS)
+    _dev_flash("ok", "Все настройки сохранены")
+
+
+def _reset_search_action(cfg: AppConfig) -> None:
+    _reset_settings_block(
+        cfg, tuple(SEARCH_SETTINGS_TYPES), "Настройки поиска сброшены к конфигу"
+    )
+    _update_baseline("search", tuple(SEARCH_SETTINGS_TYPES))
+
+
+def _search_factory_defaults(cfg: AppConfig) -> dict:
+    """Значения поиска из кода/окружения — без учёта config/settings.json."""
     base = from_env(default_adl_dir=cfg.adl_dir)
     return {key: getattr(base, key) for key in SEARCH_SETTINGS_TYPES}
 
 
-def _reset_search_settings(user_config_dir: str, defaults: dict) -> None:
-    """on_click: вернуть поисковые настройки к базовым, удалив их из overrides."""
-    for key, value in defaults.items():
+def _reset_search_defaults_action(cfg: AppConfig) -> None:
+    """Черновик поиска → заводские значения из кода (в файл не пишет)."""
+    for key, value in _search_factory_defaults(cfg).items():
         st.session_state[key] = value
-    # Бюджет контекста вернулся к дефолту: снова следуем значению из конфига.
-    st.session_state.pop("_context_budget_dirty", None)
-    reset_user_overrides(user_config_dir, settings_keys=set(SEARCH_SETTINGS_TYPES))
+    _dev_flash(
+        "ok",
+        "Настройки поиска сброшены к заводским. Нажмите «Сохранить», чтобы записать их в конфиг.",
+    )
+
+
+def _reset_index_action(cfg: AppConfig) -> None:
+    _reset_settings_block(cfg, _BLOCK_INDEX_KEYS, "Пути индексации сброшены к конфигу")
+    _update_baseline("index", _BLOCK_INDEX_KEYS)
+
+
+def _reset_llm_action(cfg: AppConfig) -> None:
+    _reset_llm_block(cfg)
+    _update_baseline("llm", (*LLM_SETTINGS_TYPES, *_LLM_UI_KEYS))
+
+
+def _reset_prompts_action(cfg: AppConfig) -> None:
+    _reset_prompts_block(cfg)
+    _update_baseline("prompts", _PROMPT_SESSION_KEYS)
 
 
 def _reset_all_user_settings(user_config_dir: str) -> None:
@@ -1140,19 +1376,8 @@ def _reset_all_user_settings(user_config_dir: str) -> None:
         "corp_context_window",
     ):
         st.session_state.pop(key, None)
-
-
-def _context_budget_on_change(key: str):
-    """on_change: бюджет контекста задан пользователем, а не взят из конфига."""
-
-    def _callback() -> None:
-        dirty = st.session_state.get("_context_budget_dirty")
-        if not isinstance(dirty, set):
-            dirty = set()
-        dirty.add(key)
-        st.session_state["_context_budget_dirty"] = dirty
-
-    return _callback
+    # Снимок для индикатора изменений пересоберётся на следующем прогоне.
+    st.session_state.pop("_dev_baseline", None)
 
 
 # Приблизительные размеры поля промпта: ширина сайдбара ~45 символов,
@@ -1206,89 +1431,6 @@ def prompt_field_height(text: str) -> int:
     return max(_PROMPT_FIELD_MIN_HEIGHT, min(_PROMPT_FIELD_MAX_HEIGHT, height))
 
 
-def _search_settings_payload(state: SidebarState, settings: dict) -> dict:
-    """settings.json: сохраняем пути индексации и параметры поиска из dev-панели."""
-    payload = dict(settings)
-    payload.update(
-        {
-            "adl_dir": state.adl_dir,
-            "ckm_adl_dir": state.ckm_adl_dir,
-        }
-    )
-    dirty_budgets = st.session_state.get("_context_budget_dirty") or set()
-    for key in SEARCH_SETTINGS_TYPES:
-        # Бюджет контекста не перетираем значением из устаревшей сессии: если
-        # пользователь его не менял, в файле остаётся актуальное значение.
-        if key in CONTEXT_BUDGET_KEYS and key not in dirty_budgets:
-            continue
-        # Значение из виджета важнее: если dev только что выключили, последний
-        # сдвиг слайдера ещё не попал в cfg, но уже лежит в session_state.
-        value = st.session_state.get(key)
-        payload[key] = value if value is not None else getattr(state, key, payload.get(key))
-    # Промпты живут в отдельном config/prompts.json — в settings.json их не пишем.
-    payload.pop("system_prompt", None)
-    for key in list(payload):
-        if key.startswith("prompt_"):
-            payload.pop(key)
-    return payload
-
-
-def _llm_settings_payload(state: SidebarState, cfg: AppConfig) -> dict:
-    """llm.json: несекретные поля LLM из dev-панели (ключи живут в .env)."""
-    payload: dict = {}
-    for key in LLM_SETTINGS_TYPES:
-        if key in st.session_state:
-            payload[key] = st.session_state[key]
-        elif hasattr(state, key):
-            payload[key] = getattr(state, key)
-        else:
-            payload[key] = getattr(cfg, key)
-    payload["corp_model_name"] = st.session_state.get("corp_model_name") or "(вручную)"
-    payload["corp_aux_model_name"] = st.session_state.get("corp_aux_model_name") or "(вручную)"
-    payload["corp_context_window"] = int(st.session_state.get("corp_context_window") or 0) or 8192
-    return payload
-
-
-def _persist_dev_settings(
-    state: SidebarState,
-    cfg: AppConfig,
-    settings: dict,
-    *,
-    write_config: bool = False,
-) -> None:
-    """Сохраняет настройки dev-панели.
-
-    ``write_config=True`` — админский режим запуска из проекта: изменения
-    пишутся в базовый ``config/settings.json`` и ``config/llm.json``. После
-    записи те же ключи удаляются из пользовательских overrides, чтобы базовый
-    конфиг оставался источником истины.
-
-    ``write_config=False`` — обычный режим: пишутся только overrides.
-    """
-    config_dir = cfg.config_dir or "."
-    user_config_dir = cfg.user_config_dir or local_config_dir()
-    if write_config:
-        # Берём базовый settings.json, чтобы не «запекать» чужие overrides
-        # в общий конфиг; значения виджетов всё равно имеют приоритет.
-        search_payload = _search_settings_payload(state, load_settings(config_dir))
-        save_settings(config_dir, search_payload)
-        llm_payload = _llm_settings_payload(state, cfg)
-        save_llm_settings(config_dir, llm_payload)
-    else:
-        search_payload = _search_settings_payload(state, settings)
-        llm_payload = _llm_settings_payload(state, cfg)
-    # После записи base эти вызовы уберут совпадающие ключи из overrides.
-    save_user_settings(config_dir, user_config_dir, search_payload)
-    save_user_llm_settings(config_dir, user_config_dir, llm_payload)
-    try:
-        save_prompts(config_dir, prompts_from_session())
-    except PromptConfigError as e:
-        st.error(str(e))
-    except Exception:
-        logger.exception("cannot save prompts")
-        st.error(f"Не удалось сохранить промпты в {prompts_path(config_dir)}.")
-
-
 def render_dev_settings(
     cfg: AppConfig,
     settings: dict,
@@ -1300,15 +1442,12 @@ def render_dev_settings(
 
     В пользовательском режиме виджеты не рисуются: значения берутся из env/settings.
     ``write_config`` включает админскую запись в базовый ``config/`` (запуск из проекта).
+
+    Изменения виджетов живут в ``session_state`` как черновик и применяются сразу,
+    но в файлы попадают только по кнопке «Сохранить» (или «Сохранить всё»).
     """
     if not dev_mode:
-        state = _state_from_config(cfg, settings)
-        if st.session_state.get("dev_mode_used"):
-            # Пользователь мог изменить поля и сразу выключить dev-режим:
-            # в этом прогоне виджеты уже не рисуются, но их значения остались в session_state.
-            _persist_dev_settings(state, cfg, settings, write_config=write_config)
-            st.session_state["dev_mode_used"] = False
-        return state
+        return _state_from_config(cfg, settings)
 
     catalog = load_ui_catalog(cfg)
     provider_options = corp_provider_options(cfg)
@@ -1333,10 +1472,11 @@ def render_dev_settings(
         )
 
     with st.expander("Настройки (dev)", expanded=False):
+        _render_dev_flash()
         if write_config:
             st.caption(
-                "Режим разработчика (администратор) · изменения сохраняются "
-                "в config/ проекта: settings.json и llm.json."
+                "Режим разработчика (администратор) · изменения применяются сразу, "
+                "но записываются в config/ проекта только по кнопке «Сохранить»."
             )
             reset_label = "Сбросить пользовательские переопределения"
             reset_help = (
@@ -1345,14 +1485,22 @@ def render_dev_settings(
             )
         else:
             st.caption(
-                "Режим разработчика · изменения сохраняются в пользовательские overrides; "
-                "базовые настройки — в config/ репозитория с данными."
+                "Режим разработчика · изменения применяются сразу, но записываются "
+                "в пользовательские overrides только по кнопке «Сохранить»."
             )
             reset_label = "Вернуться к настройкам по умолчанию"
             reset_help = (
                 "Удалить пользовательские переопределения (с резервной копией) "
                 "и использовать настройки из config/ репозитория."
             )
+        st.button(
+            "Сохранить всё",
+            use_container_width=True,
+            key="save_all_settings_btn",
+            help="Записать текущие значения всех блоков в конфиг.",
+            on_click=_save_all_action,
+            args=(cfg, write_config),
+        )
         st.button(
             reset_label,
             use_container_width=True,
@@ -1522,6 +1670,17 @@ def render_dev_settings(
 
                 if b_full_rebuild:
                     st.session_state["full_rebuild_open"] = True
+
+                _render_block_actions(
+                    label="Индексация",
+                    dirty=_block_is_dirty("index", _BLOCK_INDEX_KEYS),
+                    save_key="save_index_settings_btn",
+                    reset_key="reset_index_settings_btn",
+                    on_save=_save_index_action,
+                    on_reset=_reset_index_action,
+                    save_args=(cfg, write_config),
+                    reset_args=(cfg,),
+                )
         else:
             adl_dir = (settings.get("adl_dir") or cfg.adl_dir or "")
             index_dir = (settings.get("index_dir") or cfg.index_dir or "")
@@ -1633,7 +1792,6 @@ def render_dev_settings(
                     max_value=200000,
                     step=1000,
                     key="context_tokens_archetypes",
-                    on_change=_context_budget_on_change("context_tokens_archetypes"),
                     help=(
                         "Сколько токенов отводить на ADL-контекст во вкладке «Архетипы». "
                         "10 000 ≈ 30 000 символов. Больше — больше архетипов, "
@@ -1646,20 +1804,33 @@ def render_dev_settings(
                     max_value=200000,
                     step=1000,
                     key="context_tokens_fields",
-                    on_change=_context_budget_on_change("context_tokens_fields"),
                     help=(
                         "Сколько токенов отводить на ADL-контекст во вкладке «Поля». "
                         "10 000 ≈ 30 000 символов. Поля короткие, поэтому их "
                         "обычно помещается много."
                     ),
                 )
+                _render_block_actions(
+                    label="Поиск",
+                    dirty=_block_is_dirty("search", tuple(SEARCH_SETTINGS_TYPES)),
+                    save_key="save_search_settings_btn",
+                    reset_key="reset_search_settings_btn",
+                    on_save=_save_search_action,
+                    on_reset=_reset_search_action,
+                    save_args=(cfg, write_config),
+                    reset_args=(cfg,),
+                )
                 st.button(
-                    "Сбросить настройки поиска",
+                    "Сбросить к заводским настройкам",
                     use_container_width=True,
-                    key="reset_search_settings_btn",
-                    help="Вернуть пороги, веса и лимит результатов к значениям по умолчанию.",
-                    on_click=_reset_search_settings,
-                    args=(cfg.user_config_dir or local_config_dir(), _search_defaults(cfg)),
+                    key="reset_search_defaults_btn",
+                    help=(
+                        "Вернуть пороги, веса и лимиты к значениям из кода. "
+                        "Действует сразу в текущей сессии; чтобы записать в конфиг, "
+                        "нажмите «Сохранить»."
+                    ),
+                    on_click=_reset_search_defaults_action,
+                    args=(cfg,),
                 )
 
         with st.expander("LLM", expanded=False):
@@ -1896,10 +2067,23 @@ def render_dev_settings(
                 ollama_model = st.session_state.get("ollama_model", "")
                 ollama_base_url = st.session_state.get("ollama_base_url", "")
 
+            _render_block_actions(
+                label="LLM",
+                dirty=_block_is_dirty(
+                    "llm", (*LLM_SETTINGS_TYPES, *_LLM_UI_KEYS)
+                ),
+                save_key="save_llm_settings_btn",
+                reset_key="reset_llm_settings_btn",
+                on_save=_save_llm_block,
+                on_reset=_reset_llm_action,
+                save_args=(cfg, write_config),
+                reset_args=(cfg,),
+            )
+
         with st.expander("Промпты", expanded=False):
             st.caption(
                 f"Все промпты хранятся в `{prompts_path(cfg.config_dir)}`. "
-                "Изменения применяются сразу и сохраняются в этот файл. "
+                "Изменения применяются сразу, а в файл попадают по кнопке «Сохранить». "
                 "Пустые обязательные поля не сохраняются."
             )
             with st.container(key="prompt_fields"):
@@ -1931,8 +2115,29 @@ def render_dev_settings(
                 + f"\n<!-- prompts-{st.session_state['_prompt_fit_seq']} -->",
                 height=1,
             )
+            _render_block_actions(
+                label="Промпты",
+                dirty=_block_is_dirty("prompts", _PROMPT_SESSION_KEYS),
+                save_key="save_prompts_btn",
+                reset_key="reset_prompts_btn",
+                on_save=_save_prompts_block,
+                on_reset=_reset_prompts_action,
+                save_args=(cfg,),
+                reset_args=(cfg,),
+            )
 
-        state = SidebarState(
+        # Снимок значений для индикатора «есть несохранённые изменения».
+    # Делается после отрисовки виджетов: иначе на первом прогоне сессии
+    # ключей ещё нет и индикатор ложно срабатывал бы.
+    baseline = st.session_state.setdefault("_dev_baseline", {})
+    baseline.setdefault("search", _capture_baseline(tuple(SEARCH_SETTINGS_TYPES)))
+    baseline.setdefault("index", _capture_baseline(_BLOCK_INDEX_KEYS))
+    baseline.setdefault(
+        "llm", _capture_baseline((*LLM_SETTINGS_TYPES, *_LLM_UI_KEYS))
+    )
+    baseline.setdefault("prompts", _capture_baseline(_PROMPT_SESSION_KEYS))
+
+    state = SidebarState(
         adl_dir=adl_dir,
         index_dir=index_dir,
         ckm_adl_dir=(ckm_adl_dir or "").strip(),
@@ -1982,9 +2187,8 @@ def render_dev_settings(
         gigachat_aux_model=gigachat_aux_model,
     )
 
-    # Сохраняем настройки dev-панели: при следующем запуске они подтянутся
-    # и в dev-, и в пользовательском режиме (файлы важнее .env).
-    _persist_dev_settings(state, cfg, settings, write_config=write_config)
+    # Настройки сохранены в конфиг? Нет: изменения живут в session_state
+    # как черновик и пишутся в файлы только по кнопке «Сохранить».
 
     # Полная пересборка: диалог подтверждения (сама пересборка — в блоке «Индексация»).
     if st.session_state.get("full_rebuild_open"):
