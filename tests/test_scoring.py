@@ -8,6 +8,7 @@ from adl_smart_search.rag import (
     is_low_confidence,
     pure_floor_by_doc_lang,
 )
+from adl_smart_search.scoring import is_lexical_match
 from adl_smart_search.ui.settings import select_indices_by_relevance
 
 
@@ -77,6 +78,52 @@ def test_lexical_matches_morphology_prefix():
     )
     assert float(bonus[0]) > 0.0
     assert md[0]["matched_unique"] == ["вентиляция"]
+
+
+def test_lexical_match_keeps_inflections():
+    assert is_lexical_match("давление", "давления")
+    assert is_lexical_match("одышка", "одышкой")
+    assert is_lexical_match("анемия", "анемии")
+    assert is_lexical_match("гипертония", "гипертонической")
+
+
+def test_lexical_match_rejects_common_prefix_false_friends():
+    assert not is_lexical_match("макроцитарная", "Макроцефалия")
+    assert not is_lexical_match("железодефицитная", "Железо")
+    assert not is_lexical_match("гипертония", "гипертрофия")
+
+
+def test_lexical_bonus_ignores_false_friend_words():
+    docs = [
+        _doc("macro.adl", "Макроцефалия: увеличение размеров головы"),
+        _doc("iron.adl", "Железо сыворотки крови"),
+    ]
+    vectors = np.zeros((2, 8), dtype=np.float32)
+    vectors[:, 0] = 1.0
+    _scores, _sims, bonus, _penalty, md = compute_scores(
+        query="макроцитарная железодефицитная",
+        docs=docs,
+        vectors=vectors,
+        embedder=_MockEmbedder(),
+        keyword_bonus=0.5,
+    )
+    assert float(bonus.max()) == 0.0
+    assert md == {}
+
+
+def test_lexical_bonus_counts_inflected_form():
+    docs = [_doc("a.adl", "повышение давления в артерии")]
+    vectors = np.zeros((1, 8), dtype=np.float32)
+    vectors[0, 0] = 1.0
+    _scores, _sims, bonus, _penalty, md = compute_scores(
+        query="давление",
+        docs=docs,
+        vectors=vectors,
+        embedder=_MockEmbedder(),
+        keyword_bonus=0.5,
+    )
+    assert float(bonus[0]) > 0.0
+    assert md[0]["matched_unique"] == ["давление"]
 
 
 def test_short_token_matches_exactly_only():

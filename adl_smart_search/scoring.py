@@ -57,10 +57,19 @@ _MISUSE_SIM_MIN = 0.3
 
 # Морфология: для длинных слов ищем по префиксу основы («вентиляц*»),
 # чтобы «вентиляция» находила «вентиляции»/«вентиляцию».
-# Префикс достаточно длинный (6 символов), иначе «настройки» находит
-# «настроение», а «вес» — «весь».
+# Основу берём как «длина − 3» в диапазоне 5–8 символов: фиксированные 6 букв
+# были коротковаты для составных слов («железо» ↔ «железодефицитная») и
+# длинноваты для шестибуквенных («анемия» не находила «анемии»).
 _PREFIX_MIN_LEN = 6
-_PREFIX_STEM_LEN = 6
+_PREFIX_TAIL = 3
+_PREFIX_STEM_MIN = 5
+_PREFIX_STEM_MAX = 8
+
+# После regex проверяем, что слова действительно однокоренные: общий префикс
+# покрывает большую часть более короткого слова, а длины сопоставимы. Иначе
+# «макроц*» цепляет «макроцефалию», а «желез*» — «железо».
+_LEX_MATCH_MAX_RATIO = 1.6
+_LEX_MATCH_MIN_COVER = 0.8
 
 # Фразовый поиск: короткие осмысленные словосочетания из 2–4 значимых слов.
 # Внутри фразы допускаем не больше одного дополнительного слова.
@@ -217,9 +226,64 @@ def _extract_keywords_for_bonus(query: str, token_vocab: set[str] | None = None)
 
 def _stem_prefix(token: str) -> str:
     """Основа для морфологического матчинга (консервативная обрезка)."""
-    if len(token) >= _PREFIX_MIN_LEN:
-        return token[:_PREFIX_STEM_LEN]
-    return token
+    if len(token) < _PREFIX_MIN_LEN:
+        return token
+    cut = min(_PREFIX_STEM_MAX, max(_PREFIX_STEM_MIN, len(token) - _PREFIX_TAIL))
+    return token[:cut]
+
+
+def _common_prefix_len(a: str, b: str) -> int:
+    n = min(len(a), len(b))
+    i = 0
+    while i < n and a[i] == b[i]:
+        i += 1
+    return i
+
+
+def is_lexical_match(query_word: str, doc_word: str) -> bool:
+    """Однокоренные ли слова: общий префикс покрывает слово, длины сопоставимы.
+
+    Регекс по префиксу основы даёт кандидатов, но сам по себе склеивает разные
+    термины с общим началом («макроцитарная» → «макроцефалия»). Здесь отсекаем
+    такие пары, сохраняя падежные формы: «давление» → «давления», «одышка» →
+    «одышкой», но «железодефицитная» ↛ «железо».
+    """
+    q = (query_word or "").lower()
+    w = (doc_word or "").lower()
+    if not q or not w:
+        return False
+    if len(w) > len(q) * _LEX_MATCH_MAX_RATIO:
+        return False
+    if len(w) * _LEX_MATCH_MAX_RATIO < len(q):
+        return False
+    return _common_prefix_len(q, w) >= _LEX_MATCH_MIN_COVER * min(len(q), len(w))
+
+
+def _lexical_hits(
+    pattern: re.Pattern, text: str, query_word: str, check: bool
+) -> list[str]:
+    """Совпадения паттерна, прошедшие проверку однокоренности."""
+    if not text:
+        return []
+    if not check:
+        return pattern.findall(text)
+    return [
+        m.group(0)
+        for m in pattern.finditer(text)
+        if is_lexical_match(query_word, m.group(0))
+    ]
+
+
+def _has_lexical_hit(
+    pattern: re.Pattern, text: str, query_word: str, check: bool
+) -> bool:
+    if not text:
+        return False
+    if not check:
+        return pattern.search(text) is not None
+    return any(
+        is_lexical_match(query_word, m.group(0)) for m in pattern.finditer(text)
+    )
 
 
 def _compile_lexical_patterns(kws: list[str]) -> list[re.Pattern]:
@@ -359,19 +423,22 @@ def _scan_lexical_stats(
         dl[i] = float(len(hay.split()))
 
         for k, pat in enumerate(patterns):
-            c_hay = len(pat.findall(hay))
-            c_mis = len(pat.findall(misuse_text)) if misuse_text else 0
+            kw = kws[k]
+            check = _stem_prefix(kw) != kw
+            hits = _lexical_hits(pat, hay, kw, check)
+            c_hay = len(hits)
+            c_mis = len(_lexical_hits(pat, misuse_text, kw, check)) if misuse_text else 0
             if c_hay:
                 df[k] += 1.0
                 tf[i, k] = c_hay
-                c_short = len(pat.findall(short))
+                c_short = len(_lexical_hits(pat, short, kw, check))
                 tf_short[i, k] = c_short
                 if c_hay - c_short > 0:
-                    in_searchable[i].append(kws[k])
-                if pat.search(file_t):
-                    in_file[i].append(kws[k])
-                if pat.search(anchor_t):
-                    in_anchor[i].append(kws[k])
+                    in_searchable[i].append(kw)
+                if _has_lexical_hit(pat, file_t, kw, check):
+                    in_file[i].append(kw)
+                if _has_lexical_hit(pat, anchor_t, kw, check):
+                    in_anchor[i].append(kw)
             if c_mis:
                 # Совпадение в misuse не даёт бонуса, но понижает приоритет документа.
                 tf_misuse[i, k] = c_mis

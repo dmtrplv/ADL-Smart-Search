@@ -44,7 +44,7 @@ from adl_smart_search.rag import (
     pure_floor_by_doc_lang,
     reorder_picked_with_simi_preference,
 )
-from adl_smart_search.scoring import _SHORT_STOPWORDS, phrase_matches
+from adl_smart_search.scoring import _SHORT_STOPWORDS, is_lexical_match, phrase_matches
 from adl_smart_search.ui.context import TabContext, prompts_from_session
 from adl_smart_search.ui.dialog import (
     append_chat_message,
@@ -571,6 +571,7 @@ section[data-testid="stSidebar"] [class*="chat_composer"] textarea {
 
 
 def _word_highlight_pattern(keywords):
+    """Регекс-кандидат и слова запроса для проверки однокоренности."""
     kws = [str(k).strip().lower() for k in (keywords or []) if str(k).strip()]
     if not kws:
         return None
@@ -578,20 +579,34 @@ def _word_highlight_pattern(keywords):
     for kw in dict.fromkeys(kws):
         stem = _stem_prefix(kw)
         parts.append(re.escape(stem) + (r"\w*" if stem != kw else r"\b"))
-    return re.compile(r"\b(?:" + "|".join(parts) + r")", flags=re.IGNORECASE)
+    pattern = re.compile(r"\b(?:" + "|".join(parts) + r")", flags=re.IGNORECASE)
+    return pattern, list(dict.fromkeys(kws))
 
 
-def _mark_highlighted_segment(segment: str, pattern, phrases) -> str:
+def _mark_highlighted_segment(segment: str, matcher, phrases) -> str:
     """Подсветка слов и фраз внутри уже экранированного фрагмента."""
     if not segment:
         return segment
 
     def mark_words(part: str) -> str:
-        if pattern is None or not part:
+        if matcher is None or not part:
             return part
-        return pattern.sub(
-            lambda m: f'<span class="match-hl">{m.group(0)}</span>', part
-        )
+        pattern, kws = matcher
+        out: list[str] = []
+        pos = 0
+        for m in pattern.finditer(part):
+            word = m.group(0)
+            # regex даёт кандидатов по префиксу; подсвечиваем только однокоренные,
+            # иначе «боль» подсвечивала бы «больше», а «макроцитарная» — «макроцефалию».
+            if not any(is_lexical_match(kw, word) for kw in kws):
+                continue
+            out.append(part[pos : m.start()])
+            out.append(f'<span class="match-hl">{word}</span>')
+            pos = m.end()
+        if not out:
+            return part
+        out.append(part[pos:])
+        return "".join(out)
 
     spans = phrase_matches(segment, list(phrases or []))
     if not spans:
@@ -703,7 +718,7 @@ def highlight_matches_html(text: str, keywords, phrases=None, focus_span=None) -
     )
     raw = text or ""
     body = html.escape(raw)
-    pattern = _word_highlight_pattern(keywords)
+    matcher = _word_highlight_pattern(keywords)
     phrases = list(phrases or [])
 
     focus: tuple[int, int] | None = None
@@ -718,12 +733,12 @@ def highlight_matches_html(text: str, keywords, phrases=None, focus_span=None) -
             focus = (esc_start, esc_start + len(html.escape(raw[start:end])))
 
     if focus is None:
-        return f"{open_tag}{_mark_highlighted_segment(body, pattern, phrases)}</div>"
+        return f"{open_tag}{_mark_highlighted_segment(body, matcher, phrases)}</div>"
 
     fs, fe = focus
-    before = _mark_highlighted_segment(body[:fs], pattern, phrases)
-    middle = _mark_highlighted_segment(body[fs:fe], pattern, phrases)
-    after = _mark_highlighted_segment(body[fe:], pattern, phrases)
+    before = _mark_highlighted_segment(body[:fs], matcher, phrases)
+    middle = _mark_highlighted_segment(body[fs:fe], matcher, phrases)
+    after = _mark_highlighted_segment(body[fe:], matcher, phrases)
     return (
         f"{open_tag}{before}"
         f'<div class="field-focus">{middle}</div>'
