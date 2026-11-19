@@ -1155,6 +1155,57 @@ def _context_budget_on_change(key: str):
     return _callback
 
 
+# Приблизительные размеры поля промпта: ширина сайдбара ~45 символов,
+# строка ~20 px. Подстройка статическая — при следующем открытии настроек.
+_PROMPT_CHARS_PER_LINE = 45
+_PROMPT_LINE_HEIGHT_PX = 20
+_PROMPT_FIELD_MIN_HEIGHT = 120
+_PROMPT_FIELD_MAX_HEIGHT = 1000
+
+# Точная подгонка высоты полей промптов под содержимое: ширина сайдбара
+# меняется, поэтому статическая оценка может промахнуться. Скрипт отрабатывает
+# при открытии настроек и при раскрытии блока «Промпты».
+_PROMPT_FIELDS_JS = """
+<style>html,body{margin:0;padding:0;height:0;overflow:hidden}</style>
+<script>
+setTimeout(() => {
+  try {
+    const doc = window.parent.document;
+    const box = doc.querySelector('.st-key-prompt_fields');
+    if (!box) return;
+    const fit = () => {
+      for (const ta of box.querySelectorAll('textarea')) {
+        // height:auto даёт минимум в 2 строки, поэтому меряем с нулевой высотой.
+        ta.style.height = '0px';
+        const need = ta.scrollHeight;
+        if (!need) continue;
+        ta.style.height = Math.min(need + 2, __MAX__) + 'px';
+      }
+    };
+    fit();
+    const details = box.closest('details');
+    if (details && !details.__adlPromptFit) {
+      details.__adlPromptFit = true;
+      details.addEventListener('toggle', () => {
+        if (details.open) setTimeout(fit, 30);
+      });
+    }
+  } catch (e) {}
+}, 120);
+</script>
+"""
+
+
+def prompt_field_height(text: str) -> int:
+    """Высота text_area под текущий текст промпта (без динамического слежения)."""
+    lines = 0
+    for line in (text or "").splitlines() or [""]:
+        lines += max(1, -(-len(line) // _PROMPT_CHARS_PER_LINE))
+    lines = max(1, lines)
+    height = _PROMPT_FIELD_MIN_HEIGHT + (lines - 1) * _PROMPT_LINE_HEIGHT_PX
+    return max(_PROMPT_FIELD_MIN_HEIGHT, min(_PROMPT_FIELD_MAX_HEIGHT, height))
+
+
 def _search_settings_payload(state: SidebarState, settings: dict) -> dict:
     """settings.json: сохраняем пути индексации и параметры поиска из dev-панели."""
     payload = dict(settings)
@@ -1851,23 +1902,35 @@ def render_dev_settings(
                 "Изменения применяются сразу и сохраняются в этот файл. "
                 "Пустые обязательные поля не сохраняются."
             )
-            st.text_area(
-                "Основной системный промпт",
-                value=st.session_state.get("system_prompt", ""),
-                height=160,
-                key="system_prompt",
-                help=(
-                    "Базовые правила ответа, включая правила для вопросов вне темы. "
-                    "Можно использовать {query} — подставится поисковый запрос."
-                ),
-            )
-            for part_key in PROMPT_PART_KEYS:
+            with st.container(key="prompt_fields"):
                 st.text_area(
-                    PROMPT_LABELS[part_key],
-                    value=st.session_state.get(f"prompt_{part_key}", ""),
-                    height=110,
-                    key=f"prompt_{part_key}",
+                    "Основной системный промпт",
+                    value=st.session_state.get("system_prompt", ""),
+                    height=prompt_field_height(st.session_state.get("system_prompt", "")),
+                    key="system_prompt",
+                    help=(
+                        "Базовые правила ответа, включая правила для вопросов вне темы. "
+                        "Можно использовать {query} — подставится поисковый запрос."
+                    ),
                 )
+                for part_key in PROMPT_PART_KEYS:
+                    part_value = st.session_state.get(f"prompt_{part_key}", "")
+                    st.text_area(
+                        PROMPT_LABELS[part_key],
+                        value=part_value,
+                        height=prompt_field_height(part_value),
+                        key=f"prompt_{part_key}",
+                    )
+            # Точная подгонка высоты под содержимое: ширина сайдбара меняется,
+            # поэтому статическая оценка в prompt_field_height может промахнуться.
+            st.session_state["_prompt_fit_seq"] = (
+                int(st.session_state.get("_prompt_fit_seq") or 0) + 1
+            )
+            st.iframe(
+                _PROMPT_FIELDS_JS.replace("__MAX__", str(_PROMPT_FIELD_MAX_HEIGHT))
+                + f"\n<!-- prompts-{st.session_state['_prompt_fit_seq']} -->",
+                height=1,
+            )
 
         state = SidebarState(
         adl_dir=adl_dir,
