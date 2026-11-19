@@ -1451,14 +1451,19 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
                     else:
                         cache = st.session_state.setdefault(_TRANSLATION_CACHE_KEY, {})
                         try:
-                            with st.spinner("Перевод запроса на английский (для CKM)..."):
-                                query_en, translation_note = _translate_query_cached(
-                                    cache,
-                                    translation_source,
-                                    ctx.llm_aux_provider,
-                                    system=parts["translate"],
-                                    user_template=parts["translate_user"],
-                                )
+                            # Спиннер показываем там, где потом появится перевод —
+                            # в слоте под строкой запроса.
+                            with translation_slot:
+                                with st.spinner(
+                                    "Перевод запроса на английский (для CKM)..."
+                                ):
+                                    query_en, translation_note = _translate_query_cached(
+                                        cache,
+                                        translation_source,
+                                        ctx.llm_aux_provider,
+                                        system=parts["translate"],
+                                        user_template=parts["translate_user"],
+                                    )
                         except Exception:
                             logger.exception("query translation failed; using original query for CKM")
                             translation_note = "failed"
@@ -1599,7 +1604,8 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
     translation_q = (st.session_state.get(f"{prefix}_query_en_used") or "").strip()
     if st.session_state.get(f"{prefix}_searched") and query.strip():
         used_q = (st.session_state.get(f"{prefix}_expanded_query") or "").strip()
-        if used_q and used_q != (query or "").strip():
+        # Строку показываем только в dev-режиме: в обычном она лишняя.
+        if used_q and used_q != (query or "").strip() and ctx.dev_mode:
             with expanded_query_slot.container():
                 st.caption(f"Расширенный запрос: «{used_q}»")
 
@@ -1649,15 +1655,7 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
                     "Измените фильтр или запрос и запустите поиск снова."
                 )
             else:
-                st.info(
-                    "Ничего не найдено: нет релевантных результатов "
-                    "(порог {0:.2f} с буквальным совпадением, {1:.2f} — только по смыслу, "
-                    "{2:.2f} — только по смыслу для другого языка).".format(
-                        float(ctx.sim_floor),
-                        float(ctx.sim_floor_pure),
-                        _effective_cross_floor(ctx, spec),
-                    )
-                )
+                st.info("Ничего не найдено: нет релевантных результатов.")
                 note = st.session_state.get(f"{prefix}_translation_note") or ""
                 if note == "no_llm":
                     st.warning(
@@ -1676,7 +1674,10 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
                         idx = int(s.get("index", -1))
                         if idx < 0 or idx >= len(docs):
                             continue
-                        st.caption(f"· {spec.result_label(docs[idx])} (схожесть {float(s.get('sim') or 0):.2f})")
+                        label = f"· {spec.result_label(docs[idx])}"
+                        if ctx.dev_mode:
+                            label += f" (схожесть {float(s.get('sim') or 0):.2f})"
+                        st.caption(label)
 
         selected_idx: list[int] = []
         try:
