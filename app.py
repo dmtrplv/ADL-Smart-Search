@@ -42,6 +42,7 @@ from adl_smart_search.ui.llm_provider import (
     selected_chat_provider,
 )
 from adl_smart_search.ui.settings import (
+    CONTEXT_BUDGET_KEYS,
     apply_llm_settings,
     apply_search_settings,
     dev_mode_available,
@@ -350,12 +351,14 @@ def main():
     settings = load_effective_settings(cfg.config_dir, cfg.user_config_dir)
     # Пользовательские overrides важнее базового config/ и .env: применяем их до инициализации сессии.
     apply_search_settings(cfg, settings)
-    # Бюджеты контекста читаются вкладками из session_state (как dev-виджеты),
-    # поэтому заполняем их и в пользовательском режиме.
-    for _budget_key in ("context_tokens_archetypes", "context_tokens_fields"):
-        st.session_state.setdefault(
-            _budget_key, int(getattr(cfg, _budget_key, 10000))
-        )
+    # Бюджеты контекста читаются вкладками из session_state (как dev-виджеты).
+    # Пока пользователь не менял их в этой сессии, берём значение из конфига:
+    # так правка settings.json подхватывается сразу, а устаревшая сессия не
+    # перетирает файл старым значением.
+    _dirty_budgets = st.session_state.get("_context_budget_dirty") or set()
+    for _budget_key in CONTEXT_BUDGET_KEYS:
+        if _budget_key not in _dirty_budgets:
+            st.session_state[_budget_key] = int(getattr(cfg, _budget_key, 10000))
     # Выбор провайдера ИИ больше не сохраняется за пользователем: при запуске
     # всегда действует значение из config/llm.json (по умолчанию МЭШ.ИИ.Хаб).
     try:
@@ -399,7 +402,7 @@ def main():
     state.apply_to_cfg(cfg)
     # Провайдер ИИ выбирается радиокнопкой в чате. Это должно произойти
     # до get_llm_provider(), иначе выбор в интерфейсе не влияет на запросы.
-    cfg.api_kind = selected_chat_provider()
+    cfg.api_kind = selected_chat_provider(cfg)
 
     # Миграция индексов в ./data при необходимости (только для старой раскладки).
     if not cfg.repo_root:

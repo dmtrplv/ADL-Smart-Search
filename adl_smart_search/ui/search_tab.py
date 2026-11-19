@@ -1841,8 +1841,9 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
         kind = st.session_state.get("chat_provider_choice")
         if kind not in CHAT_PROVIDER_OPTIONS:
             return
-        # Выбор действует только в текущей сессии. При следующем запуске
-        # снова используется МЭШ.ИИ.Хаб.
+        # Выбор действует только в текущей сессии и НЕ меняет значение
+        # по умолчанию из config/llm.json (chat_provider).
+        st.session_state["chat_provider_saved"] = kind
         st.session_state["api_kind"] = kind
 
     with st.sidebar:
@@ -1850,11 +1851,15 @@ def render_search_tab(ctx: TabContext, spec: SearchTabSpec, docs, vectors) -> No
             st.markdown('<div class="chat-panel-title">Чат с ИИ</div>', unsafe_allow_html=True)
 
             has_history = bool(get_chat_messages(prefix))
-            current_kind = selected_chat_provider()
+            current_kind = selected_chat_provider(ctx.cfg)
             provider_labels = {"gigachat": "ГигаЧат", "corp_async": "МЭШ.ИИ.Хаб"}
             if ctx.cfg.llm_mode != "ollama" and current_kind in provider_labels:
                 if st.session_state.get("chat_provider_choice") not in CHAT_PROVIDER_OPTIONS:
-                    st.session_state["chat_provider_choice"] = current_kind
+                    # Виджет мог быть вычищен, когда радио не отрисовывалось:
+                    # восстанавливаем последний выбор пользователя.
+                    st.session_state["chat_provider_choice"] = (
+                        st.session_state.get("chat_provider_saved") or current_kind
+                    )
                 st.radio(
                     "Провайдер",
                     options=list(CHAT_PROVIDER_OPTIONS),

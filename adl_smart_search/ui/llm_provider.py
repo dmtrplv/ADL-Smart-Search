@@ -23,7 +23,9 @@ logger = logging.getLogger(__name__)
 API_KIND_OPTIONS = ["gigachat", "corp_async", "openai_compatible"]
 CHAT_PROVIDER_OPTIONS = ("gigachat", "corp_async")
 CORP_API_KIND = "corp_async"
-DEFAULT_API_KIND = "corp_async"
+# Резерв, если в config/llm.json не задан chat_provider: чтобы приложение
+# работало «из коробки». Рабочее значение по умолчанию — в llm.json.
+FALLBACK_CHAT_PROVIDER = "corp_async"
 # Модели GigaChat API (PERS/B2B). Порядок — от лёгкой к самой мощной.
 GIGACHAT_MODEL_OPTIONS = [
     "GigaChat-2",
@@ -35,18 +37,29 @@ GIGACHAT_MODEL_OPTIONS = [
 ]
 
 
-def resolve_chat_provider(value: str | None) -> str:
-    """Допустимый провайдер чата; всё остальное сводится к МЭШ.ИИ.Хаб."""
-    return value if value in CHAT_PROVIDER_OPTIONS else DEFAULT_API_KIND
+def resolve_chat_provider(value: str | None, default: str | None = None) -> str:
+    """Допустимый провайдер чата.
+
+    Приоритет: явное значение → ``default`` из конфига → резервный вариант.
+    """
+    if value in CHAT_PROVIDER_OPTIONS:
+        return value
+    if default in CHAT_PROVIDER_OPTIONS:
+        return default
+    return FALLBACK_CHAT_PROVIDER
 
 
-def selected_chat_provider() -> str:
+def selected_chat_provider(cfg=None) -> str:
     """Провайдер, выбранный радиокнопкой в чате.
 
-    Выбор живёт только в session_state. При новом запуске приложения
-    ``init_llm_session_defaults`` ставит ``corp_async``.
+    Выбор живёт в session_state и не меняет значение по умолчанию из
+    ``config/llm.json`` (``chat_provider``). Если Streamlit вычистил состояние
+    виджета (радио не отрисовалось в прогоне), восстанавливаем последний выбор.
     """
-    return resolve_chat_provider(st.session_state.get("chat_provider_choice"))
+    saved = st.session_state.get("chat_provider_saved")
+    choice = st.session_state.get("chat_provider_choice")
+    default = getattr(cfg, "chat_provider", "") if cfg is not None else ""
+    return resolve_chat_provider(choice or saved, default)
 
 
 def load_ui_catalog(cfg) -> list[dict]:
@@ -210,7 +223,10 @@ def missing_llm_fields_message(cfg) -> str:
     mode = (getattr(cfg, "llm_mode", "") or "").strip().lower()
     if mode != "api":
         return ""
-    api_kind = (getattr(cfg, "api_kind", DEFAULT_API_KIND) or DEFAULT_API_KIND).strip().lower()
+    api_kind = resolve_chat_provider(
+        (getattr(cfg, "api_kind", "") or "").strip().lower(),
+        (getattr(cfg, "chat_provider", "") or "").strip().lower(),
+    )
 
     if api_kind in ("gigachat", "giga"):
         missing = []
@@ -297,7 +313,10 @@ def _provider_params(cfg, *, aux: bool) -> dict:
         "openai_base_url": getattr(cfg, "openai_base_url", "") or "",
         "openai_api_key": getattr(cfg, "openai_api_key", "") or "",
         "openai_model": model("openai_model", "openai_aux_model"),
-        "api_kind": getattr(cfg, "api_kind", DEFAULT_API_KIND) or DEFAULT_API_KIND,
+        "api_kind": resolve_chat_provider(
+            getattr(cfg, "api_kind", "") or "",
+            getattr(cfg, "chat_provider", "") or "",
+        ),
         "corp_provider": corp_provider,
         "corp_model_kwargs_json": (
             merged_corp_aux_model_kwargs_json(cfg)
@@ -360,6 +379,9 @@ def init_llm_session_defaults(cfg, persisted: dict | None = None) -> None:
     (выбранная модель каталога и размер контекста).
     """
     persisted = persisted or {}
+    default_provider = resolve_chat_provider(
+        getattr(cfg, "chat_provider", "") or ""
+    )
     llm_defaults = {
         # LLM mode: по умолчанию API (Оллама доступна только в dev-режиме через radio).
         "llm_mode": (getattr(cfg, "llm_mode", "") or "api"),
@@ -373,10 +395,13 @@ def init_llm_session_defaults(cfg, persisted: dict | None = None) -> None:
         "ollama_repeat_penalty": float(getattr(cfg, "ollama_repeat_penalty", cfg.ollama_repeat_penalty)),
         "ollama_use_num_predict": bool(getattr(cfg, "ollama_use_num_predict", False)),
         "ollama_num_predict": int(getattr(cfg, "ollama_num_predict", cfg.ollama_num_predict)),
-        # API. Провайдер выбирается радиокнопкой в чате, по умолчанию — corp_async.
-        "api_kind": DEFAULT_API_KIND,
-        "chat_provider_choice": DEFAULT_API_KIND,
-        "api_base_url": (cfg.api_base_url or cfg.api_base_url_default),
+        # API. Провайдер по умолчанию — config/llm.json: chat_provider;
+        # радиокнопка в чате меняет только текущую сессию.
+        "api_kind": default_provider,
+        "chat_provider": default_provider,
+        "chat_provider_saved": default_provider,
+        "chat_provider_choice": default_provider,
+        "api_base_url": (cfg.api_base_url or ""),
         "api_key": (cfg.api_key or ""),
         "api_model": (cfg.api_model or ""),
         # OpenAI-совместимый API — отдельные настройки (без данных МЭШ)
@@ -458,13 +483,18 @@ def init_llm_session_defaults(cfg, persisted: dict | None = None) -> None:
     for k, v in llm_defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
-    # Если ключ уже был создан раньше, но остался пустым — подставим дефолт.
-    if not (st.session_state.get("api_base_url") or "").strip():
-        st.session_state["api_base_url"] = cfg.api_base_url_default
     # Защита от битых/старых значений в session_state или llm.json.
     if st.session_state.get("llm_mode") not in ("ollama", "api"):
         st.session_state["llm_mode"] = "api"
+    if st.session_state.get("chat_provider") not in CHAT_PROVIDER_OPTIONS:
+        st.session_state["chat_provider"] = default_provider
     if st.session_state.get("api_kind") not in API_KIND_OPTIONS:
-        st.session_state["api_kind"] = DEFAULT_API_KIND
+        st.session_state["api_kind"] = default_provider
+    # Радио могло не отрисоваться в прошлом прогоне — Streamlit удаляет состояние
+    # такого виджета. Возвращаем последний явный выбор, а не значение из конфига.
+    saved = st.session_state.get("chat_provider_saved")
+    if saved not in CHAT_PROVIDER_OPTIONS:
+        saved = default_provider
+        st.session_state["chat_provider_saved"] = saved
     if st.session_state.get("chat_provider_choice") not in CHAT_PROVIDER_OPTIONS:
-        st.session_state["chat_provider_choice"] = DEFAULT_API_KIND
+        st.session_state["chat_provider_choice"] = saved

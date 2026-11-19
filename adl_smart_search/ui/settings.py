@@ -48,6 +48,7 @@ LLM_SETTINGS_TYPES: dict[str, type] = {
     "ollama_repeat_penalty": float,
     "ollama_use_num_predict": bool,
     "ollama_num_predict": int,
+    "chat_provider": str,
     "api_base_url": str,
     "api_model": str,
     "openai_base_url": str,
@@ -109,6 +110,10 @@ LLM_UI_DEFAULTS = {
     "corp_aux_model_name": "(вручную)",
     "corp_context_window": 8192,
 }
+
+# Бюджет ADL-контекста: значения читаются вкладками из session_state и
+# сохраняются в settings.json только при явном изменении в dev-панели.
+CONTEXT_BUDGET_KEYS = ("context_tokens_archetypes", "context_tokens_fields")
 
 
 def config_settings_path(config_dir: str) -> str:

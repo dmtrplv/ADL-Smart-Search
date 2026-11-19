@@ -168,7 +168,8 @@ def test_apply_llm_settings_ignores_legacy_api_kind():
 
     apply_llm_settings(cfg, {"api_kind": "gigachat", "api_model": "m"})
 
-    assert cfg.api_kind == "corp_async"
+    # Активный провайдер задаётся сессией/конфигом, а не устаревшим api_kind.
+    assert cfg.api_kind == ""
     assert cfg.api_model == "m"
 
 

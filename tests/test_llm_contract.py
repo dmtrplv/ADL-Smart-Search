@@ -494,19 +494,25 @@ def test_corp_sampling_params_are_top_level():
     assert data["repetition_penalty"] == 1.15
 
 
-def test_default_api_kind_is_corp_async():
-    from adl_smart_search.ui.llm_provider import DEFAULT_API_KIND
+def test_default_chat_provider_is_configurable():
+    from adl_smart_search.ui.llm_provider import FALLBACK_CHAT_PROVIDER
 
-    assert DEFAULT_API_KIND == "corp_async"
-    assert AppConfig(adl_dir=".").api_kind == "corp_async"
+    # Резерв нужен, чтобы приложение работало без llm.json; рабочее значение
+    # по умолчанию приходит из конфига.
+    assert FALLBACK_CHAT_PROVIDER == "corp_async"
+    assert AppConfig(adl_dir=".").chat_provider == "corp_async"
+    assert AppConfig(adl_dir=".", chat_provider="gigachat").chat_provider == "gigachat"
 
 
-def test_resolve_chat_provider_limits_choices_and_defaults_to_corp():
+def test_resolve_chat_provider_limits_choices_and_uses_configured_default():
     assert resolve_chat_provider(None) == "corp_async"
     assert resolve_chat_provider("") == "corp_async"
     assert resolve_chat_provider("gigachat") == "gigachat"
     assert resolve_chat_provider("corp_async") == "corp_async"
-    assert resolve_chat_provider("openai_compatible") == "corp_async"
+    # Неизвестное значение откатывается к дефолту из конфига, а не к резерву.
+    assert resolve_chat_provider("openai_compatible", "gigachat") == "gigachat"
+    assert resolve_chat_provider(None, "gigachat") == "gigachat"
+    assert resolve_chat_provider("", "bad-value") == "corp_async"
 
 
 def test_corp_async_continuation_merges_parts(monkeypatch):

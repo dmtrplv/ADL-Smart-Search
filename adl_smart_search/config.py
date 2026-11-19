@@ -2,7 +2,6 @@ import os
 from dataclasses import dataclass
 
 DEFAULT_AUTO_STRICTNESS = 0.6
-DEFAULT_API_BASE_URL = "https://school-test.mos.ru/api/ai/models/v1/message/async/v1"
 DEFAULT_CORP_CATALOG_PATH = "./config/corp_catalog.json"
 LEGACY_CORP_CATALOG_PATH = "./corp_catalog.json"
 
@@ -36,8 +35,8 @@ class AppConfig:
     # Форма поиска
     auto_strictness: float = DEFAULT_AUTO_STRICTNESS
 
-    # LLM по умолчанию (UI): base url corp async, если в cfg не задан свой
-    api_base_url_default: str = DEFAULT_API_BASE_URL
+    # LLM по умолчанию (UI): базовый адрес corp async задаётся в config/llm.json
+    # (api_base_url) и правится в dev-настройках; в коде адреса нет.
 
     # Каталог корпоративных моделей (JSON-файл, локальный, вне git) и список провайдеров
     corp_catalog_path: str = DEFAULT_CORP_CATALOG_PATH
@@ -80,8 +79,10 @@ class AppConfig:
     openai_base_url: str = ""
     openai_api_key: str = ""
     openai_model: str = ""
-    # МЭШ.ИИ.Хаб (corp_async) выбран по умолчанию.
-    api_kind: str = "corp_async"  # gigachat | corp_async | openai_compatible
+    # МЭШ.ИИ.Хаб (corp_async) — резервный вариант, если в llm.json нет chat_provider.
+    api_kind: str = ""  # активный провайдер текущей сессии: gigachat | corp_async
+    # Провайдер по умолчанию для новых сессий (config/llm.json: chat_provider).
+    chat_provider: str = "corp_async"
     corp_provider: str = ""
     corp_model_kwargs_json: str = ""
     corp_poll_timeout_s: int = 180
@@ -158,7 +159,6 @@ def from_env(default_adl_dir: str) -> AppConfig:
         data_root=os.getenv("ADL_DATA_ROOT", ""),
         ckm_adl_dir=os.getenv("ADL_CKM_DIR", ""),
         auto_strictness=float(os.getenv("ADL_AUTO_STRICTNESS", str(DEFAULT_AUTO_STRICTNESS))),
-        api_base_url_default=os.getenv("ADL_API_BASE_URL_DEFAULT", DEFAULT_API_BASE_URL),
         corp_catalog_path=os.getenv("ADL_CORP_CATALOG", os.path.join(config_dir, "corp_catalog.json")),
         corp_providers=os.getenv("ADL_CORP_PROVIDERS", ""),
         embed_model_name=os.getenv("ADL_EMBED_MODEL", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"),

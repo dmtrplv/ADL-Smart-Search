@@ -36,6 +36,7 @@ from adl_smart_search.ui.indexing import (
     delete_field_index_files,
 )
 from adl_smart_search.ui.llm_provider import (
+    CHAT_PROVIDER_OPTIONS,
     CORP_API_KIND,
     GIGACHAT_MODEL_OPTIONS,
     apply_corp_aux_catalog_selection,
@@ -45,6 +46,7 @@ from adl_smart_search.ui.llm_provider import (
     selected_chat_provider,
 )
 from adl_smart_search.ui.settings import (
+    CONTEXT_BUDGET_KEYS,
     LLM_SETTINGS_TYPES,
     SEARCH_SETTINGS_TYPES,
     index_last_built_label,
@@ -85,6 +87,7 @@ class SidebarState:
     ollama_model: str
     ollama_base_url: str
     api_kind: str
+    chat_provider: str
     api_base_url: str
     api_key: str
     api_model: str
@@ -176,6 +179,7 @@ class SidebarState:
         cfg.openai_api_key = self.openai_api_key
         cfg.openai_model = self.openai_model
         cfg.api_kind = self.api_kind
+        cfg.chat_provider = self.chat_provider
         cfg.corp_provider = self.corp_provider
         cfg.corp_model_kwargs_json = self.corp_model_kwargs_json
         cfg.corp_poll_timeout_s = int(self.corp_poll_timeout_s)
@@ -1046,6 +1050,7 @@ def _state_from_config(cfg: AppConfig, settings: dict) -> SidebarState:
         ollama_model=cfg.ollama_model,
         ollama_base_url=cfg.ollama_base_url,
         api_kind=cfg.api_kind,
+        chat_provider=cfg.chat_provider,
         api_base_url=cfg.api_base_url,
         api_key=cfg.api_key,
         api_model=cfg.api_model,
@@ -1114,6 +1119,8 @@ def _reset_search_settings(user_config_dir: str, defaults: dict) -> None:
     """on_click: вернуть поисковые настройки к базовым, удалив их из overrides."""
     for key, value in defaults.items():
         st.session_state[key] = value
+    # Бюджет контекста вернулся к дефолту: снова следуем значению из конфига.
+    st.session_state.pop("_context_budget_dirty", None)
     reset_user_overrides(user_config_dir, settings_keys=set(SEARCH_SETTINGS_TYPES))
 
 
@@ -1135,6 +1142,19 @@ def _reset_all_user_settings(user_config_dir: str) -> None:
         st.session_state.pop(key, None)
 
 
+def _context_budget_on_change(key: str):
+    """on_change: бюджет контекста задан пользователем, а не взят из конфига."""
+
+    def _callback() -> None:
+        dirty = st.session_state.get("_context_budget_dirty")
+        if not isinstance(dirty, set):
+            dirty = set()
+        dirty.add(key)
+        st.session_state["_context_budget_dirty"] = dirty
+
+    return _callback
+
+
 def _search_settings_payload(state: SidebarState, settings: dict) -> dict:
     """settings.json: сохраняем пути индексации и параметры поиска из dev-панели."""
     payload = dict(settings)
@@ -1144,11 +1164,16 @@ def _search_settings_payload(state: SidebarState, settings: dict) -> dict:
             "ckm_adl_dir": state.ckm_adl_dir,
         }
     )
+    dirty_budgets = st.session_state.get("_context_budget_dirty") or set()
     for key in SEARCH_SETTINGS_TYPES:
+        # Бюджет контекста не перетираем значением из устаревшей сессии: если
+        # пользователь его не менял, в файле остаётся актуальное значение.
+        if key in CONTEXT_BUDGET_KEYS and key not in dirty_budgets:
+            continue
         # Значение из виджета важнее: если dev только что выключили, последний
         # сдвиг слайдера ещё не попал в cfg, но уже лежит в session_state.
         value = st.session_state.get(key)
-        payload[key] = value if value is not None else getattr(state, key)
+        payload[key] = value if value is not None else getattr(state, key, payload.get(key))
     # Промпты живут в отдельном config/prompts.json — в settings.json их не пишем.
     payload.pop("system_prompt", None)
     for key in list(payload):
@@ -1557,6 +1582,7 @@ def render_dev_settings(
                     max_value=200000,
                     step=1000,
                     key="context_tokens_archetypes",
+                    on_change=_context_budget_on_change("context_tokens_archetypes"),
                     help=(
                         "Сколько токенов отводить на ADL-контекст во вкладке «Архетипы». "
                         "10 000 ≈ 30 000 символов. Больше — больше архетипов, "
@@ -1569,6 +1595,7 @@ def render_dev_settings(
                     max_value=200000,
                     step=1000,
                     key="context_tokens_fields",
+                    on_change=_context_budget_on_change("context_tokens_fields"),
                     help=(
                         "Сколько токенов отводить на ADL-контекст во вкладке «Поля». "
                         "10 000 ≈ 30 000 символов. Поля короткие, поэтому их "
@@ -1624,6 +1651,18 @@ def render_dev_settings(
                 horizontal=True,
                 format_func=lambda x: "API" if x == "api" else "Ollama",
                 key="llm_mode",
+            )
+            st.radio(
+                "Провайдер по умолчанию",
+                options=list(CHAT_PROVIDER_OPTIONS),
+                format_func=lambda kind: {"gigachat": "ГигаЧат", "corp_async": "МЭШ.ИИ.Хаб"}[kind],
+                horizontal=True,
+                key="chat_provider",
+                help=(
+                    "С каким провайдером запускается новая сессия (config/llm.json: "
+                    "chat_provider). Радиокнопка в чате переключает провайдера только "
+                    "в текущей сессии и это значение не меняет."
+                ),
             )
             llm_aux_model_enabled = st.checkbox(
                 "Отдельная модель для перевода и расширения",
@@ -1724,7 +1763,7 @@ def render_dev_settings(
                     disabled=not bool(st.session_state.get("ollama_use_num_predict", cfg.ollama_use_num_predict)),
                     key="ollama_num_predict",
                 )
-                api_kind = selected_chat_provider()
+                api_kind = selected_chat_provider(cfg)
                 corp_model_kwargs_json = st.session_state.get("corp_model_kwargs_json", "{}") or "{}"
                 api_base_url = st.session_state.get("api_base_url", "")
                 api_key = st.session_state.get("api_key", "")
@@ -1801,7 +1840,7 @@ def render_dev_settings(
                 openai_api_key = api_fields["openai_api_key"]
                 openai_model = api_fields["openai_model"]
                 openai_aux_model = api_fields.get("openai_aux_model", "")
-                api_kind = selected_chat_provider()
+                api_kind = selected_chat_provider(cfg)
 
                 ollama_model = st.session_state.get("ollama_model", "")
                 ollama_base_url = st.session_state.get("ollama_base_url", "")
@@ -1848,6 +1887,7 @@ def render_dev_settings(
         ollama_model=ollama_model,
         ollama_base_url=ollama_base_url,
         api_kind=api_kind,
+        chat_provider=str(st.session_state.get("chat_provider") or cfg.chat_provider or ""),
         api_base_url=api_base_url,
         api_key=api_key,
         api_model=api_model,

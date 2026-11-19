@@ -25,6 +25,45 @@ def test_chat_provider_defaults_to_corp(tmp_path, monkeypatch):
     assert at.session_state["api_kind"] == "corp_async"
 
 
+def test_stale_session_does_not_overwrite_context_budget(tmp_path, monkeypatch):
+    """Правка settings.json подхватывается, а старая сессия её не перетирает."""
+    _prepare(tmp_path, monkeypatch)
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "settings.json").write_text(
+        json.dumps(
+            {"context_tokens_archetypes": 10000, "context_tokens_fields": 10000}
+        ),
+        encoding="utf-8",
+    )
+
+    at = AppTest.from_file(APP, default_timeout=120).run()
+    # Устаревшая сессия держит прежнее значение, но пользователь его не менял.
+    at.session_state["context_tokens_archetypes"] = 1000
+    at.run()
+
+    assert at.session_state["context_tokens_archetypes"] == 10000
+    saved = json.loads((config_dir / "settings.json").read_text(encoding="utf-8"))
+    assert saved["context_tokens_archetypes"] == 10000
+
+
+def test_dev_panel_saves_context_budget(tmp_path, monkeypatch):
+    _prepare(tmp_path, monkeypatch)
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "settings.json").write_text(
+        json.dumps({"context_tokens_archetypes": 1000, "context_tokens_fields": 1000}),
+        encoding="utf-8",
+    )
+
+    at = AppTest.from_file(APP, default_timeout=120).run()
+    at.toggle[0].set_value(True).run()
+    at.number_input(key="context_tokens_archetypes").set_value(10000).run()
+
+    saved = json.loads((config_dir / "settings.json").read_text(encoding="utf-8"))
+    assert saved["context_tokens_archetypes"] == 10000
+
+
 def test_disabling_dev_mode_saves_last_edit(tmp_path, monkeypatch):
     _prepare(tmp_path, monkeypatch)
     at = AppTest.from_file(APP, default_timeout=120).run()
