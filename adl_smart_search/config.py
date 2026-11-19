@@ -52,9 +52,6 @@ class AppConfig:
     enable_misuse_penalty: bool = True
     enable_weak_match_penalty: bool = True
     max_results: int = 10  # максимум результатов в выдаче
-    # Бюджет токенов на ADL-контекст для ИИ (отдельно для вкладок).
-    context_tokens_archetypes: int = 10000
-    context_tokens_fields: int = 10000
     sim_floor: float = 0.30  # порог схожести для документов с буквальным совпадением
     sim_floor_pure: float = 0.55  # порог схожести для «чисто смысловых» документов
     # Порог «только по смыслу» для документов на другом языке (кросс-языковой поиск
@@ -66,6 +63,9 @@ class AppConfig:
     simi_pref_eps: float = 1e-4  # микрошаг для переупорядочивания выдачи: -simi и .vN
 
     # LLM
+    # Бюджет токенов на ADL-контекст для ИИ (отдельно для вкладок).
+    context_tokens_archetypes: int = 10000
+    context_tokens_fields: int = 10000
     llm_mode: str = "api"  # ollama | api
     ollama_model: str = "gemma4:e4b"
     ollama_base_url: str = ""  # e.g. http://192.168.1.10:11434

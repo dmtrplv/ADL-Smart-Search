@@ -93,22 +93,27 @@ def test_reset_all_button_restores_all_blocks(tmp_path, monkeypatch):
     assert not any("несохранённые" in caption.value for caption in at.caption)
 
 
-def test_context_budget_saved_via_button(tmp_path, monkeypatch):
+def test_context_budget_saved_to_llm_config(tmp_path, monkeypatch):
     _prepare(tmp_path, monkeypatch)
     config_dir = tmp_path / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
-    (config_dir / "settings.json").write_text(
+    (config_dir / "llm.json").write_text(
         json.dumps({"context_tokens_archetypes": 1000, "context_tokens_fields": 1000}),
         encoding="utf-8",
     )
     at = AppTest.from_file(APP, default_timeout=120).run()
 
     at.toggle[0].set_value(True).run()
+    assert at.number_input(key="context_tokens_archetypes").value == 1000
     at.number_input(key="context_tokens_archetypes").set_value(10000).run()
-    at.button(key="save_search_settings_btn").click().run()
+    at.button(key="save_llm_settings_btn").click().run()
 
-    saved = json.loads((config_dir / "settings.json").read_text(encoding="utf-8"))
+    saved = json.loads((config_dir / "llm.json").read_text(encoding="utf-8"))
     assert saved["context_tokens_archetypes"] == 10000
+    settings_file = config_dir / "settings.json"
+    if settings_file.exists():
+        settings = json.loads(settings_file.read_text(encoding="utf-8"))
+        assert "context_tokens_archetypes" not in settings
 
 
 def test_reset_search_to_factory_defaults(tmp_path, monkeypatch):

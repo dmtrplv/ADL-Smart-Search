@@ -341,16 +341,16 @@ def main():
     cfg = from_env(default_adl_dir="")
     settings = load_settings(cfg.config_dir)
     apply_search_settings(cfg, settings)
-    # Бюджеты контекста читаются вкладками из session_state (как dev-виджеты),
-    # поэтому заполняем их и в пользовательском режиме.
-    for _budget_key in CONTEXT_BUDGET_KEYS:
-        st.session_state.setdefault(
-            _budget_key, int(getattr(cfg, _budget_key, 10000))
-        )
     # Выбор провайдера ИИ не сохраняется: при запуске действует значение
     # из config/llm.json (по умолчанию МЭШ.ИИ.Хаб).
     llm_persisted = load_llm_settings(cfg.config_dir)
     apply_llm_settings(cfg, llm_persisted)
+    # Бюджеты контекста — часть настроек LLM, но вкладки читают их из
+    # session_state (как dev-виджеты), поэтому заполняем после llm.json.
+    for _budget_key in CONTEXT_BUDGET_KEYS:
+        st.session_state.setdefault(
+            _budget_key, int(getattr(cfg, _budget_key, 10000))
+        )
     init_llm_session_defaults(cfg, llm_persisted)
     try:
         prompts = load_prompts(cfg.config_dir)

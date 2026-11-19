@@ -75,8 +75,10 @@ def test_context_budget_settings_have_defaults_and_types():
 
     assert cfg.context_tokens_archetypes == 10000
     assert cfg.context_tokens_fields == 10000
-    assert SEARCH_SETTINGS_TYPES["context_tokens_archetypes"] is int
-    assert SEARCH_SETTINGS_TYPES["context_tokens_fields"] is int
+    assert LLM_SETTINGS_TYPES["context_tokens_archetypes"] is int
+    assert LLM_SETTINGS_TYPES["context_tokens_fields"] is int
+    assert "context_tokens_archetypes" not in SEARCH_SETTINGS_TYPES
+    assert "context_tokens_fields" not in SEARCH_SETTINGS_TYPES
 
 
 def test_phrase_bonus_has_default_and_type():

@@ -1296,7 +1296,12 @@ def _render_block_actions(
             args=reset_args,
         )
     if dirty:
-        st.caption(f"• {label}: есть несохранённые изменения")
+        st.caption(
+            '<span style="color:#d13438;font-weight:600">'
+            f"• {label}: есть несохранённые изменения"
+            "</span>",
+            unsafe_allow_html=True,
+        )
 
 
 def _save_search_action(cfg: AppConfig) -> None:
@@ -1772,31 +1777,6 @@ def render_dev_settings(
                     value=bool(cfg.enable_weak_match_penalty),
                     key="enable_weak_match_penalty",
                 )
-                st.markdown("**Контекст для ИИ**")
-                st.number_input(
-                    "Бюджет контекста: архетипы (токены)",
-                    min_value=1000,
-                    max_value=200000,
-                    step=1000,
-                    key="context_tokens_archetypes",
-                    help=(
-                        "Сколько токенов отводить на ADL-контекст во вкладке «Архетипы». "
-                        "10 000 ≈ 30 000 символов. Больше — больше архетипов, "
-                        "но выше риск шума и дольше ответ."
-                    ),
-                )
-                st.number_input(
-                    "Бюджет контекста: поля (токены)",
-                    min_value=1000,
-                    max_value=200000,
-                    step=1000,
-                    key="context_tokens_fields",
-                    help=(
-                        "Сколько токенов отводить на ADL-контекст во вкладке «Поля». "
-                        "10 000 ≈ 30 000 символов. Поля короткие, поэтому их "
-                        "обычно помещается много."
-                    ),
-                )
                 _render_block_actions(
                     label="Поиск",
                     dirty=_block_is_dirty("search", tuple(SEARCH_SETTINGS_TYPES)),
@@ -2054,6 +2034,43 @@ def render_dev_settings(
                 ollama_model = st.session_state.get("ollama_model", "")
                 ollama_base_url = st.session_state.get("ollama_base_url", "")
 
+            st.markdown("**Контекст для ИИ**")
+            st.number_input(
+                "Бюджет контекста: архетипы (токены)",
+                min_value=1000,
+                max_value=200000,
+                step=1000,
+                value=int(
+                    st.session_state.get(
+                        "context_tokens_archetypes",
+                        getattr(cfg, "context_tokens_archetypes", 10000),
+                    )
+                ),
+                key="context_tokens_archetypes",
+                help=(
+                    "Сколько токенов отводить на ADL-контекст во вкладке «Архетипы». "
+                    "10 000 ≈ 30 000 символов. Больше — больше архетипов, "
+                    "но выше риск шума и дольше ответ."
+                ),
+            )
+            st.number_input(
+                "Бюджет контекста: поля (токены)",
+                min_value=1000,
+                max_value=200000,
+                step=1000,
+                value=int(
+                    st.session_state.get(
+                        "context_tokens_fields",
+                        getattr(cfg, "context_tokens_fields", 10000),
+                    )
+                ),
+                key="context_tokens_fields",
+                help=(
+                    "Сколько токенов отводить на ADL-контекст во вкладке «Поля». "
+                    "10 000 ≈ 30 000 символов. Поля короткие, поэтому их "
+                    "обычно помещается много."
+                ),
+            )
             _render_block_actions(
                 label="LLM",
                 dirty=_block_is_dirty(

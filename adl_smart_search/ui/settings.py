@@ -49,8 +49,6 @@ SEARCH_SETTINGS_TYPES: dict[str, type] = {
     "enable_misuse_penalty": bool,
     "enable_weak_match_penalty": bool,
     "max_results": int,
-    "context_tokens_archetypes": int,
-    "context_tokens_fields": int,
     "sim_floor": float,
     "sim_floor_pure": float,
 }
@@ -122,6 +120,9 @@ LLM_SETTINGS_TYPES: dict[str, type] = {
     "corp_aux_provider": str,
     "corp_aux_model_kwargs_json": str,
     "gigachat_aux_model": str,
+    # Бюджет ADL-контекста для ИИ — часть настроек LLM.
+    "context_tokens_archetypes": int,
+    "context_tokens_fields": int,
 }
 
 # Только UI-состояние каталога моделей (в cfg таких полей нет).
@@ -132,7 +133,7 @@ LLM_UI_DEFAULTS = {
 }
 
 # Бюджет ADL-контекста: значения читаются вкладками из session_state и
-# сохраняются в settings.json только по кнопке «Сохранить» в dev-панели.
+# сохраняются в llm.json по кнопке «Сохранить» в блоке «LLM».
 CONTEXT_BUDGET_KEYS = ("context_tokens_archetypes", "context_tokens_fields")
 
 
