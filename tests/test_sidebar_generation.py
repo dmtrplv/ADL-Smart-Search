@@ -14,20 +14,22 @@ _render_corp_generation_settings(
 )
 """
 
-# Порядок чекбоксов в блоке: temperature, max_tokens, top_p, top_k,
-# enable_thinking, presence_penalty, repetition_penalty.
-MAX_TOKENS_INDEX = 1
+MAX_TOKENS_LABEL = "Задать свой лимит ответа (max_tokens)"
+
+
+def _max_tokens_checkbox(at):
+    return next(c for c in at.checkbox if c.label == MAX_TOKENS_LABEL)
 
 
 def test_manual_max_tokens_checkbox_survives_reruns():
     at = AppTest.from_string(GENERATION_APP, default_timeout=30).run()
-    assert at.checkbox[MAX_TOKENS_INDEX].value is False
+    assert _max_tokens_checkbox(at).value is False
 
-    at.checkbox[MAX_TOKENS_INDEX].check()
+    _max_tokens_checkbox(at).check()
     at.run()
 
-    assert at.checkbox[MAX_TOKENS_INDEX].value is True
+    assert _max_tokens_checkbox(at).value is True
 
     # Повторный rerun не должен сбрасывать ручную настройку для каталоговой модели.
     at.run()
-    assert at.checkbox[MAX_TOKENS_INDEX].value is True
+    assert _max_tokens_checkbox(at).value is True

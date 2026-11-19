@@ -725,3 +725,89 @@ def test_corp_length_error_hint_for_reasoning():
     assert "enable_thinking" in hint
     assert "max_tokens" in hint
 
+
+class _OpenAIResponse:
+    def __init__(self, *, status=200, payload=None, text=""):
+        self.status_code = status
+        self._payload = payload or {}
+        self.text = text
+
+    def json(self):
+        return self._payload
+
+
+def _openai_cfg():
+    return OpenAICompatibleConfig(
+        base_url="https://openai.test/v1/",
+        api_key="secret",
+        model="test-model",
+    )
+
+
+def test_openai_provider_reads_choice_and_finish_reason(monkeypatch):
+    import requests
+
+    captured = {}
+
+    def _post(url, headers=None, json=None, timeout=None):
+        captured.update(url=url, headers=headers, json=json, timeout=timeout)
+        return _OpenAIResponse(
+            payload={
+                "choices": [
+                    {"message": {"content": "  ответ  "}, "finish_reason": "stop"}
+                ]
+            }
+        )
+
+    monkeypatch.setattr(requests, "post", _post)
+    provider = OpenAICompatibleProvider(_openai_cfg())
+
+    assert provider.chat([{"role": "user", "content": "вопрос"}]) == "ответ"
+    assert provider.last_finish_reason == "stop"
+    assert captured["url"] == "https://openai.test/v1/chat/completions"
+    assert captured["headers"]["Authorization"] == "Bearer secret"
+    assert captured["json"]["messages"] == [{"role": "user", "content": "вопрос"}]
+
+
+def test_openai_provider_http_error_is_mapped(monkeypatch):
+    import requests
+
+    monkeypatch.setattr(
+        requests,
+        "post",
+        lambda *a, **k: _OpenAIResponse(status=401, text='{"detail": "bad key"}'),
+    )
+    provider = OpenAICompatibleProvider(_openai_cfg())
+
+    with pytest.raises(LLMError) as exc:
+        provider.chat([{"role": "user", "content": "вопрос"}])
+
+    assert exc.value.status_code == 401
+    assert exc.value.error_type == "http_error"
+
+
+def test_openai_provider_malformed_response_returns_empty(monkeypatch):
+    import requests
+
+    monkeypatch.setattr(
+        requests, "post", lambda *a, **k: _OpenAIResponse(payload={"unexpected": 1})
+    )
+    provider = OpenAICompatibleProvider(_openai_cfg())
+
+    assert provider.chat([{"role": "user", "content": "вопрос"}]) == ""
+    assert provider.last_finish_reason == ""
+
+
+def test_openai_provider_timeout_is_mapped(monkeypatch):
+    import requests
+
+    def _timeout(*a, **k):
+        raise requests.exceptions.ReadTimeout("too slow")
+
+    monkeypatch.setattr(requests, "post", _timeout)
+    provider = OpenAICompatibleProvider(_openai_cfg())
+
+    with pytest.raises(LLMError) as exc:
+        provider.chat([{"role": "user", "content": "вопрос"}])
+
+    assert exc.value.error_type == "read_timeout"

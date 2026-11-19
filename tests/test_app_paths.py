@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from adl_smart_search.app_paths import (
@@ -75,7 +76,24 @@ def test_bootstrap_roundtrip(tmp_path, monkeypatch):
     write_bootstrap(str(repo_root))
 
     assert bootstrap_repo_root() == str(repo_root)
-    assert (tmp_path / "local" / "config" / "bootstrap.json").is_file()
+    bootstrap = tmp_path / "local" / "config" / "bootstrap.json"
+    stored = json.loads(bootstrap.read_text(encoding="utf-8"))
+    assert stored["repo_root"] == str(repo_root)
+    assert "data_root" not in stored
+
+
+def test_bootstrap_reads_legacy_data_root(tmp_path, monkeypatch):
+    _clear_path_env(monkeypatch)
+    monkeypatch.setenv("ADL_LOCAL_DIR", str(tmp_path / "local"))
+    repo_root = tmp_path / "emiastemplates"
+    data_root = _make_repo(repo_root)
+    bootstrap = tmp_path / "local" / "config" / "bootstrap.json"
+    bootstrap.parent.mkdir(parents=True)
+    bootstrap.write_text(
+        json.dumps({"schema": 1, "data_root": str(data_root)}), encoding="utf-8"
+    )
+
+    assert bootstrap_repo_root() == str(repo_root)
 
 
 def test_bootstrap_resolves_data_root_from_repo(tmp_path, monkeypatch):

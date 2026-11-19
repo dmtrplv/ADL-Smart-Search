@@ -3,7 +3,6 @@
 import logging
 import os
 
-import numpy as np
 import streamlit as st
 
 from adl_smart_search.index_files import ALL_INDEX_FILE_NAMES, LOCAL_SOURCE, index_filenames, source_index_dir
@@ -135,17 +134,3 @@ def load_field_index_safe(index_dir: str):
     except Exception:
         logger.exception("load_field_index_safe: load failed from %s", index_dir)
     return None, None
-
-
-def norm_rows(mat):
-    if mat is None:
-        return None
-    try:
-        if not hasattr(mat, "shape") or mat.size == 0:
-            return mat
-        norms = np.linalg.norm(mat, axis=1, keepdims=True)
-        norms[norms == 0] = 1.0
-        return (mat / norms).astype(np.float32)
-    except Exception:
-        logger.debug("norm_rows: skipping normalization")
-        return mat

@@ -373,3 +373,79 @@ def test_exit_button_is_rendered(tmp_path, monkeypatch):
     at = AppTest.from_file(APP, default_timeout=120).run()
 
     assert any(button.label == "Завершить работу" for button in at.button)
+
+def _seed_prompts(tmp_path, monkeypatch):
+    import shutil
+
+    monkeypatch.delenv("ADL_PROMPTS_FILE", raising=False)
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    source = Path(__file__).resolve().parent / "fixtures" / "prompts.json"
+    shutil.copyfile(source, config_dir / "prompts.json")
+    return json.loads((config_dir / "prompts.json").read_text(encoding="utf-8"))
+
+
+def test_save_index_paths_writes_config(tmp_path, monkeypatch):
+    _prepare(tmp_path, monkeypatch)
+    at = AppTest.from_file(APP, default_timeout=120).run()
+
+    at.toggle[0].set_value(True).run()
+    at.text_input(key="adl_dir").set_value(str(tmp_path / "adl")).run()
+    at.button(key="save_index_settings_btn").click().run()
+
+    saved = json.loads(
+        (tmp_path / "config" / "settings.json").read_text(encoding="utf-8")
+    )
+    assert saved["adl_dir"] == str(tmp_path / "adl")
+
+
+def test_save_prompts_block_writes_config(tmp_path, monkeypatch):
+    _prepare(tmp_path, monkeypatch)
+    seeded = _seed_prompts(tmp_path, monkeypatch)
+    at = AppTest.from_file(APP, default_timeout=120).run()
+
+    at.toggle[0].set_value(True).run()
+    at.text_area(key="system_prompt").set_value("НОВАЯ СИСТЕМА").run()
+    at.button(key="save_prompts_btn").click().run()
+
+    saved = json.loads(
+        (tmp_path / "config" / "prompts.json").read_text(encoding="utf-8")
+    )
+    assert saved["system_prompt"] == "НОВАЯ СИСТЕМА"
+    assert saved["translate"] == seeded["translate"]
+
+
+def test_reset_prompts_block_restores_file_values(tmp_path, monkeypatch):
+    _prepare(tmp_path, monkeypatch)
+    seeded = _seed_prompts(tmp_path, monkeypatch)
+    at = AppTest.from_file(APP, default_timeout=120).run()
+
+    at.toggle[0].set_value(True).run()
+    at.text_area(key="system_prompt").set_value("ЧЕРНОВИК").run()
+    at.button(key="reset_prompts_btn").click().run()
+
+    assert at.session_state["system_prompt"] == seeded["system_prompt"]
+    saved = json.loads(
+        (tmp_path / "config" / "prompts.json").read_text(encoding="utf-8")
+    )
+    assert saved["system_prompt"] == seeded["system_prompt"]
+
+
+def test_save_all_writes_search_and_prompts(tmp_path, monkeypatch):
+    _prepare(tmp_path, monkeypatch)
+    _seed_prompts(tmp_path, monkeypatch)
+    at = AppTest.from_file(APP, default_timeout=120).run()
+
+    at.toggle[0].set_value(True).run()
+    next(s for s in at.slider if s.label == "Вес точного совпадения").set_value(1.2).run()
+    at.text_area(key="system_prompt").set_value("СИСТЕМА ИЗ SAVE ALL").run()
+    at.button(key="save_all_settings_btn").click().run()
+
+    settings = json.loads(
+        (tmp_path / "config" / "settings.json").read_text(encoding="utf-8")
+    )
+    prompts = json.loads(
+        (tmp_path / "config" / "prompts.json").read_text(encoding="utf-8")
+    )
+    assert settings["keyword_bonus"] == 1.2
+    assert prompts["system_prompt"] == "СИСТЕМА ИЗ SAVE ALL"
