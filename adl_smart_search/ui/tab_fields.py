@@ -51,7 +51,7 @@ def _value_types_from_field_doc(d: dict) -> set[str]:
     vt = d.get("value_types")
     if isinstance(vt, list) and vt:
         return {str(x) for x in vt if str(x).startswith("DV_")}
-    txt = (d.get("text") or "")
+    txt = d.get("text") or ""
     return set(re.findall(r"(DV_[A-Z_]+)", txt))
 
 
@@ -61,7 +61,7 @@ def _extract_values_and_units(d: dict) -> tuple[list[str], list[str]]:
     - значения: из строки "Значения: ..." в d["text"]
     - единицы: из фрагментов "Число (<units>)"
     """
-    txt = (d.get("text") or "")
+    txt = d.get("text") or ""
     values: list[str] = []
     units: list[str] = []
     if txt:
@@ -118,7 +118,9 @@ def _render_name(
 _FIELD_LINE_RE = re.compile(r"^\s*-\s+.*\((at[0-9.]+)\)")
 
 
-def _field_block_span(text: str, at_code: str, field_name: str = "") -> tuple[int, int] | None:
+def _field_block_span(
+    text: str, at_code: str, field_name: str = ""
+) -> tuple[int, int] | None:
     """Границы блока поля в структуре архетипа (строка + значения/описание)."""
     if not text or not at_code:
         return None
@@ -258,15 +260,17 @@ def _make_field_spec(ctx: TabContext) -> SearchTabSpec:
     return SearchTabSpec(
         prefix="field",
         top_caption="Поиск полей в архетипах",
-        query_help="Одно или несколько слов",
+        query_help="Одно или несколько слов. Чем конкретнее запрос, тем релевантнее результаты",
         filter_label="Фильтр: тип данных поля (DV_*)",
         filter_help=(
-        "Можно выбрать несколько. Поле попадает в результаты, если у него есть "
-        "хотя бы один из выбранных типов."
-    ),
+            "Можно выбрать несколько. Поле попадает в результаты, если у него есть "
+            "хотя бы один из выбранных типов."
+        ),
         filter_options=DV_TYPE_OPTIONS,
         filter_key="field_dv_types_filter",
-        filter_matches=lambda selected, doc: bool(_value_types_from_field_doc(doc) & set(selected)),
+        filter_matches=lambda selected, doc: bool(
+            _value_types_from_field_doc(doc) & set(selected)
+        ),
         vocab_key="field_token_vocab",
         min_k=5,
         result_count_label="Показано найденных полей:",
@@ -289,14 +293,14 @@ def _make_field_spec(ctx: TabContext) -> SearchTabSpec:
         build_context=lambda query, selected, embedder=None, query_en="", expanded_query=None: _build_field_context(
             ctx, query, selected
         ),
-    select_first_warning="Сначала выберите хотя бы одно поле в результатах поиска",
-    stale_warning=FIELD_STALE_WARNING,
-    # Тексты полей короткие (заголовки), поэтому кросс-языковая схожесть у них
-    # завышена: порог выше, чем для длинных текстов архетипов, иначе лезет мусор.
-    sim_floor_pure_cross=0.50,
-    context_tokens_key="context_tokens_fields",
-    index_kind="field",
-)
+        select_first_warning="Сначала выберите хотя бы одно поле в результатах поиска",
+        stale_warning=FIELD_STALE_WARNING,
+        # Тексты полей короткие (заголовки), поэтому кросс-языковая схожесть у них
+        # завышена: порог выше, чем для длинных текстов архетипов, иначе лезет мусор.
+        sim_floor_pure_cross=0.50,
+        context_tokens_key="context_tokens_fields",
+        index_kind="field",
+    )
 
 
 def render_fields_tab(ctx: TabContext) -> None:

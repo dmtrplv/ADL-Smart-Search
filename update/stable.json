@@ -1,9 +1,9 @@
 {
   "schema": 1,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "channel": "stable",
-  "published_at": "2026-11-19T14:16:07+00:00",
-  "notes": "# ADL Smart Search 1.0.0\n\nПервый стабильный релиз. Главное по сравнению с 0.9.1 — заметно более простая и предсказуемая работа с настройками, обновлённый dev-режим и доработки поиска.\n\n## Настройки и dev-режим\n\n- Убраны пользовательские overrides. Теперь есть ровно один источник настроек — `config/` проекта при запуске из Python или подключённого репозитория при запуске exe. Наружу вынесен только путь к репозиторию.\n- Dev-панель работает по модели «черновик + явное сохранение»: изменения применяются сразу, но в `settings.json`, `llm.json` и `prompts.json` попадают только по кнопке «Сохранить». Добавлены общие «Сохранить всё» и «Сбросить всё», у каждого блока есть свои «Сохранить» и «Сбросить».\n- В dev-режиме exe кнопки сохранения пишут в тот же `config/` репозитория, который читают пользователи. Устаревшие `*.overrides.json` удаляются при старте.\n- Явный переключатель **«Размышления (thinking)»** показывается только для моделей, которые его поддерживают.\n- Бюджет контекста для ИИ перенесён в блок «LLM» и хранится в `config/llm.json`.\n- Индикатор несохранённых изменений стал заметным — красным.\n- Текстовые поля промптов подстраиваются по высоте под содержимое.\n\n## Поиск и ИИ\n\n- История запросов: до 10 последних запросов в выпадающем списке, отдельно для архетипов и полей.\n- Добавлен бонус за точное словосочетание и подсветка фраз в результатах.\n- Лексическое совпадение стало строже: общие префиксы слов больше не дают ложных срабатываний.\n- Расширения запроса фильтруются по словарю базы: в подсказках остаются только термины, которые реально есть в индексе.\n- Улучшена работа с CKM: перевод контекста по запросу, спиннер во время перевода, аккуратные подписи источников и дат индексации.\n- Дубликаты local + CKM схлопываются, версии архетипов упорядочиваются предсказуемее.\n- В выдаче полей показывается контекст архетипа.\n\n## Интерфейс и стабильность\n\n- Обновлён общий вид чата и сайдбара, добавлена иконка приложения.\n- Даты сборки индексов отображаются без мигания и не перегружают карточки.\n- Улучшены подсказки по пустым результатам, ошибкам и коротким токенам.\n- Расширено тестовое покрытие: обновление приложения, первый запуск, dev-настройки, промпты, архивы обновлений и откат при ошибке.\n\n## Обновление\n\nОбновление с 0.9.1 поддерживается автоматически: приложение увидит версию 1.0.0, скачает дельту или полный архив и перезапустится. Данные и `config/` при обновлении не затрагиваются.",
+  "published_at": "2026-11-20T08:48:00+00:00",
+  "notes": "# ADL Smart Search 1.0.1\n\nХотфикс к 1.0.0.\n\n- Исправлен выбор папки репозитория через кнопку «Обзор» на русской Windows. Раньше путь с кириллицей (например, `Рабочий стол` или `OneDrive`) возвращался в OEM-кодировке и отображался как `ђ“вЄ© …`, из-за чего приложение не находило `config/` и `data/`. Теперь диалог явно отдаёт путь в UTF-8, и репозиторий на рабочем столе подключается корректно.\n\nДанные, индексы и `config/` при обновлении не затрагиваются.",
   "managed_roots": [
     "ADL-Smart-Search.exe",
     "ADL-Smart-Search-Updater.exe",
@@ -15,13 +15,13 @@
   "files": [
     {
       "path": "ADL-Smart-Search-Updater.exe",
-      "size": 11115825,
-      "sha256": "b0e81f8762bb0611f390c13d96d77195e16925b10f1f1e90e29b2b2c2a57169d"
+      "size": 11113575,
+      "sha256": "25957a30e07f305ef4e866d789b0579f507eef1f2182b3fb1d30faf12e77747f"
     },
     {
       "path": "ADL-Smart-Search.exe",
       "size": 73408954,
-      "sha256": "da4637f427ed53dfe8d889452885baf6e32b28a388c66212e5bfe35782406057"
+      "sha256": "e57c35ad7e112b996dbaf55a1f0683a818cfeb703ec1a66420c1917177c10779"
     },
     {
       "path": "_internal/81d243bd2c585b0f4821__mypyc.cp312-win_amd64.pyd",
@@ -66,7 +66,7 @@
     {
       "path": "_internal/README.md",
       "size": 60352,
-      "sha256": "ac81ffb3fb5dee72e80168921dbdb2554ce3bc77812a4c0bbf8f6427db9485d6"
+      "sha256": "9d2056b11c78d870a2a22b25d1ac29a41267ed996b3bdf6d27fea9078fd31c5d"
     },
     {
       "path": "_internal/VCOMP140.DLL",
@@ -161,7 +161,7 @@
     {
       "path": "_internal/adl_smart_search/__init__.py",
       "size": 230,
-      "sha256": "5e8caaedcaeb8f3f1e6780ed8b8176a3c3794391ad206adebb49b52d22b46394"
+      "sha256": "62d4ef6fd174a9bc5c881e5db0f01c420c449d28ac7839cf36c505748b24282d"
     },
     {
       "path": "_internal/adl_smart_search/adl_parser.py",
@@ -315,8 +315,8 @@
     },
     {
       "path": "_internal/adl_smart_search/ui/sidebar.py",
-      "size": 103740,
-      "sha256": "2572648378abca1b709dd9ff3c9472fe07ceb94ef0290ae0fb53d97eabe7486f"
+      "size": 104374,
+      "sha256": "28f864b15bb3007dc1069518f423f1db72539383cc5c26d2bea22b25adc88111"
     },
     {
       "path": "_internal/adl_smart_search/ui/tab_archetypes.py",
@@ -325,8 +325,8 @@
     },
     {
       "path": "_internal/adl_smart_search/ui/tab_fields.py",
-      "size": 11247,
-      "sha256": "d1566361ed09c1e95e522d6ba67e6a0c5f363ae810be4c0c606beff3e29f3ae0"
+      "size": 11717,
+      "sha256": "e53bb2906e24d48b297df37dc798e653847beffd11d83b0fa1f784dbc8101bbd"
     },
     {
       "path": "_internal/adl_smart_search/ui/utils.py",
@@ -421,7 +421,7 @@
     {
       "path": "_internal/base_library.zip",
       "size": 1333717,
-      "sha256": "495b16789300024224f75a422ab9ea1f5816f270e290c1af8f705da32129c2c1"
+      "sha256": "eff18832cefbc02262852705d299ccf742ec854e478b29e28a4f2ec2d158c0e0"
     },
     {
       "path": "_internal/certifi/cacert.pem",
@@ -33081,25 +33081,30 @@
     {
       "path": "version.json",
       "size": 73,
-      "sha256": "d0f39b8286ffaaa4d53293b55c22551de09ad691ce2c724d5faef779974bdafd"
+      "sha256": "46ce1af941699ed62a16642d63505bdb3c8ebf595e004f065c5541eccb572391"
     }
   ],
   "assets": {
     "full": {
-      "url": "https://github.com/dmtrplv/ADL-Smart-Search/releases/download/v1.0.0/ADL-Smart-Search-1.0.0-full.zip",
-      "size": 733758095,
-      "sha256": "87c49146b44ee88c0db83ed60c238fdfaab02e3efc9a81f3a17d9724d17a4d5f"
+      "url": "https://github.com/dmtrplv/ADL-Smart-Search/releases/download/v1.0.1/ADL-Smart-Search-1.0.1-full.zip",
+      "size": 733756638,
+      "sha256": "35d4f8b8136fb7cd04f6651b976e5cbcc06c89e140c68cf83c9efc281255e76f"
     },
     "deltas": {
       "0.9.0": {
-        "url": "https://github.com/dmtrplv/ADL-Smart-Search/releases/download/v1.0.0/delta-0.9.0-to-1.0.0.zip",
-        "size": 84578632,
-        "sha256": "a44bdd494dae9f5b06b2d8e6feabe230024ef04942ff8807d8ec45b25a4bd1b3"
+        "url": "https://github.com/dmtrplv/ADL-Smart-Search/releases/download/v1.0.1/delta-0.9.0-to-1.0.1.zip",
+        "size": 84577425,
+        "sha256": "3324ebd54fa54d7e02d12fd0d5ed5debfa00d08955256a549559014ebe93cf7c"
       },
       "0.9.1": {
-        "url": "https://github.com/dmtrplv/ADL-Smart-Search/releases/download/v1.0.0/delta-0.9.1-to-1.0.0.zip",
-        "size": 84578632,
-        "sha256": "a44bdd494dae9f5b06b2d8e6feabe230024ef04942ff8807d8ec45b25a4bd1b3"
+        "url": "https://github.com/dmtrplv/ADL-Smart-Search/releases/download/v1.0.1/delta-0.9.1-to-1.0.1.zip",
+        "size": 84577425,
+        "sha256": "3324ebd54fa54d7e02d12fd0d5ed5debfa00d08955256a549559014ebe93cf7c"
+      },
+      "1.0.0": {
+        "url": "https://github.com/dmtrplv/ADL-Smart-Search/releases/download/v1.0.1/delta-1.0.0-to-1.0.1.zip",
+        "size": 84316305,
+        "sha256": "d85dfae14abb8cbd8853414b15719bf7e7fee20d58f75f9aeb42f86c271393cd"
       }
     }
   }

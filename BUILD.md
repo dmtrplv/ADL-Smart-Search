@@ -139,13 +139,13 @@
 python scripts/make_release.py `
   --dist dist\ADL-Smart-Search-<дата> `
   --full-zip dist\ADL-Smart-Search-<дата>.zip `
-  --version 1.0.0 `
+  --version 1.0.1 `
   --channel stable `
   --github-repo dmtrplv/ADL-Smart-Search
 ```
 
-Загрузите `update/assets/*` в GitHub Release с тегом `v1.0.0`, затем закоммитьте
-`update/stable.json` и `update/manifests/1.0.0.json`.
+Загрузите `update/assets/*` в GitHub Release с тегом `v1.0.1`, затем закоммитьте
+`update/stable.json` и `update/manifests/1.0.1.json`.
 
 ## Передача пользователю
 
@@ -173,3 +173,4 @@ python scripts/make_release.py `
 
 Версия задаётся в `adl_smart_search\__init__.py` (`__version__`) и показывается
 в правом нижнем углу приложения.
+

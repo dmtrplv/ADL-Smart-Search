@@ -229,15 +229,16 @@ class SidebarState:
         cfg.gigachat_aux_model = self.gigachat_aux_model
 
 
-def browse_dir(session_key: str = "adl_dir", description: str = "Выберите папку") -> None:
-    # Важно:
-    # - tkinter диалоги часто падают в Streamlit с "main thread is not in main loop"
-    #   (callback выполняется не в GUI main thread).
-    # - Поэтому на Windows используем FolderBrowserDialog через отдельный pwsh-процесс.
-    try:
-        path = ""
-        if sys.platform.startswith("win"):
-            ps = rf"""
+def _run_folder_dialog(description: str) -> str:
+    """Открывает системный диалог выбора папки и возвращает Unicode-путь.
+
+    PowerShell 5.1 при перенаправлении stdout на русской Windows отдаёт путь
+    в OEM-кодировке (CP866), поэтому явно переключаем его на UTF-8 и читаем
+    вывод с той же кодировкой.
+    """
+    ps = rf"""
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
 Add-Type -AssemblyName System.Windows.Forms | Out-Null
 $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
 $dlg.Description = "{description}"
@@ -246,14 +247,28 @@ if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{
   Write-Output $dlg.SelectedPath
 }}
 """
-            p = subprocess.run(
-                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-            if p.returncode == 0:
-                path = (p.stdout or "").strip()
+    p = subprocess.run(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=60,
+    )
+    if p.returncode != 0:
+        return ""
+    return (p.stdout or "").strip()
+
+
+def browse_dir(session_key: str = "adl_dir", description: str = "Выберите папку") -> None:
+    # Важно:
+    # - tkinter диалоги часто падают в Streamlit с "main thread is not in main loop"
+    #   (callback выполняется не в GUI main thread).
+    # - Поэтому на Windows используем FolderBrowserDialog через отдельный pwsh-процесс.
+    try:
+        path = ""
+        if sys.platform.startswith("win"):
+            path = _run_folder_dialog(description)
         if path:
             st.session_state[session_key] = path
             return
